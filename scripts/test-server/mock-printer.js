@@ -340,9 +340,9 @@ export function startMockPrinter({ serial, port, interval, log, report = null, d
     server.on("tlsClientError", () => {});
 
     /**
-     * Answers the one command the service sends, `get_version`, on the report
-     * topic the way a printer does. Everything else a real printer would act
-     * on and this one has no state for.
+     * Answers the two commands the service sends, `get_version` and `pushall`,
+     * on the report topic the way a printer does. Everything else a real
+     * printer would act on and this one has no state for.
      */
     function answerCommand(client, command) {
         let parsed;
@@ -351,11 +351,15 @@ export function startMockPrinter({ serial, port, interval, log, report = null, d
         } catch {
             return;
         }
-        if (parsed?.info?.command !== "get_version") return;
         if (!client.subscriptions.some(filter => topicMatches(filter, topic))) return;
 
-        client.socket.write(publishPacket(topic, versionAnswer(serial, units, amsModel)));
-        log(`answered get_version with ${units.length} AMS unit(s) as ${amsModel}`);
+        if (parsed?.info?.command === "get_version") {
+            client.socket.write(publishPacket(topic, versionAnswer(serial, units, amsModel)));
+            log(`answered get_version with ${units.length} AMS unit(s) as ${amsModel}`);
+        } else if (parsed?.pushing?.command === "pushall") {
+            client.socket.write(publishPacket(topic, buildReport(report, false, storage)));
+            log("answered pushall with a full report");
+        }
     }
 
     const timer = setInterval(() => {
@@ -433,7 +437,7 @@ function handlePacket(client, type, flags, payload, log, answerCommand) {
             break;
 
         case PUBLISH:
-            // A command. The service sends exactly one, get_version, right
+            // A command. The service sends two, get_version and pushall, right
             // after it subscribes; see answerCommand() in startMockPrinter().
             answerCommand(client, parsePublish(payload, flags));
             break;

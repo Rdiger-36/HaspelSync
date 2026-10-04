@@ -308,6 +308,28 @@ function requestVersion(client, printer) {
 }
 
 /**
+ * Asks the printer for a full report right away.
+ *
+ * Sent once per connection, next to `requestVersion()`. Between full reports
+ * a printer sends deltas without the AMS block and the external holder, and an
+ * A1 mini sends a full one only about every five minutes, so after a restart
+ * the slots and a running print stayed unknown for that long (issue #212).
+ * Never sent on a timer: a P1P is known to stall when asked too often.
+ *
+ * @param {object} client - the connected MQTT client
+ * @param {object} printer - the printer runtime object
+ */
+function requestFullReport(client, printer) {
+    const request = JSON.stringify({ pushing: { command: "pushall", sequence_id: "0" } });
+    try {
+        client.publish(`device/${printer.id}/request`, request);
+        debug("mqtt", printer.name, printer.logFilePath, "Asked the printer for a full report (pushall)");
+    } catch (err) {
+        debug("mqtt", printer.name, printer.logFilePath, `Could not ask for a full report: ${err?.message}`);
+    }
+}
+
+/**
  * Reads the printer's `get_version` answer for the AMS units it names.
  *
  * Called ahead of `handleMqttMessage()` and outside it on purpose: that handler
@@ -2342,6 +2364,7 @@ export async function setupMqtt(printer) {
         console.log(printer.name, printer.logFilePath, `MQTT client connected for Printer: ${printer.id}`);
         await client.subscribeAsync(`device/${printer.id}/report`);
         requestVersion(client, printer);
+        requestFullReport(client, printer);
 
         client.on("message", (topic, message) => {
             // Ahead of the handler, and deliberately outside it: handleMqttMessage

@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - The service asks the printer for a full report as soon as it connects. Until now it waited for the printer to send one by itself, which an A1 mini does only about every five minutes, so after a restart the slots, the external holder and a running print showed up minutes late (issue #212)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.0
    - Breaking:
       - The project is called HaspelSync. The image is ghcr.io/rdiger-36/haspelsync and the repository is github.com/Rdiger-36/HaspelSync. GitHub redirects the old repository address, so links, clones and the update check of an installed version keep working. GHCR does not redirect an image name: every release is published under the old name ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus as well for a transition period, so an installation that pulls it keeps updating, but the old name will be retired. Switch the image in docker run or docker-compose to the new name; the configuration and the volumes stay as they are

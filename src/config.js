@@ -45,7 +45,7 @@ export const supervised = process.env.SUPERVISED === "1";
 // src/imagenotice.js is what reads it.
 export const imageName = process.env.HASPELSYNC_IMAGE || null;
 
-export const version = "1.3.2";
+export const version = "1.3.3";
 export const PORT = 4000;
 
 /** The spellings a boolean environment variable is accepted in. */

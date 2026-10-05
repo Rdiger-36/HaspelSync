@@ -94,7 +94,7 @@ x86-64, arm64 and arm/v7 are built; the [installation](docs/installation.md#supp
 - A detail dialog per slot: everything Spoolman holds about the spool and its filament, next to what the printer reports, with the remaining weight, lot number and comment editable in place
 - New filaments filled in from the SpoolmanDB catalogue, multi colour spools included
 - Web UI with print dashboard, printer management, settings and log viewer, no container restart needed except for switching legacy mode, and usable on a phone
-- The Web UI in English and German, picked per browser on the settings page; another language is one file, see [Translations](#translations)
+- The Web UI in English, German and Polish, picked per browser on the settings page; another language is one file, see [Translations](#translations)
 - An optional password in front of the Web UI, and named API keys for callers that have no browser
 - An [API page](docs/api.md) in the Web UI that lists every route and sends it from the browser, with the same description as OpenAPI for Swagger UI or Postman
 - Lightweight Docker container, ready for x86-64, arm64 and arm/v7
@@ -137,7 +137,7 @@ You need a running Spoolman instance and, per printer, its serial number, access
 
 ## Translations
 
-The Web UI is English by default and speaks German as well; the language field on the settings page picks it per browser. Log lines, the API reference and every value the API hands out stay English on purpose, so bug reports, scripts and the Home Assistant integration read the same everywhere.
+The Web UI is English by default and speaks German and Polish as well; the language field on the settings page picks it per browser. Log lines, the API reference and every value the API hands out stay English on purpose, so bug reports, scripts and the Home Assistant integration read the same everywhere.
 
 Adding a language takes one file and no change to any page:
 

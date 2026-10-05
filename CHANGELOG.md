@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - New Features:
+      - The Web UI speaks Polish. Pick it in the Web UI section of the settings page or on the login page. Thanks to @tomeko12 (PR #219)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.1
    - Fixes:
       - The service asks the printer for a full report as soon as it connects. Until now it waited for the printer to send one by itself, which an A1 mini does only about every five minutes, so after a restart the slots, the external holder and a running print showed up minutes late (issue #212)

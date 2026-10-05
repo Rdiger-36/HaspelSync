@@ -27,8 +27,8 @@ import { fileURLToPath } from "node:url";
  * One file per language. English is `print-errors.json`, which the log and
  * the API speak, and every other language `print-errors.<lang>.json`, which
  * the Web UI shows in that language. A code a language lacks falls back to
- * English there. German is shipped because the Web UI speaks German; another
- * language is one more run with its code.
+ * English there. German and Polish are shipped because the Web UI speaks
+ * them; another language is one more run with its code.
  *
  * Usage: node scripts/fetch-print-errors.js [lang]   (default en)
  *

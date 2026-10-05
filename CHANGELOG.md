@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - New Features:
+      - The reason a print failed is shown in Polish too, from Bambu Lab's Polish error catalogue. Until now the Polish Web UI showed it in English
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.2
    - New Features:
       - The Web UI speaks Polish. Pick it in the Web UI section of the settings page or on the login page. Thanks to @tomeko12 (PR #219)

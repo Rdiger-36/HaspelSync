@@ -39,11 +39,13 @@ test("a known code gets its sentence, an unknown one nothing", () => {
     assert.equal(describePrintError(null), null);
 });
 
-test("the catalogue is shipped in German too, and a missing language falls back to English", () => {
+test("the catalogue is shipped in German and Polish too, and a missing language falls back to English", () => {
     assert.ok(PRINT_ERROR_CATALOGUES.de);
+    assert.ok(PRINT_ERROR_CATALOGUES.pl);
     assert.equal(describePrintError(50348044, "de"), "Die Aufgabe wurde abgebrochen.");
+    assert.equal(describePrintError(50348044, "pl"), "Zadanie zostało anulowane.");
     assert.equal(describePrintError(50348044, "xx"), "The task was canceled.");
-    assert.deepEqual(describePrintErrorInAll(50348044), { en: "The task was canceled.", de: "Die Aufgabe wurde abgebrochen." });
+    assert.deepEqual(describePrintErrorInAll(50348044), { en: "The task was canceled.", de: "Die Aufgabe wurde abgebrochen.", pl: "Zadanie zostało anulowane." });
     assert.equal(describePrintErrorInAll(7), null);
 });
 
@@ -52,7 +54,7 @@ test("a print error is handed out as parts a client can word itself", async () =
     // A P2S stopped by hand
     const stopped = { print_error: 50348044, fail_reason: "50348044" };
     assert.equal(printErrorText(stopped), "Printer error 50348044: The task was canceled.");
-    assert.deepEqual(printErrorDetails(stopped), [{ kind: "printer", code: "50348044", texts: { en: "The task was canceled.", de: "Die Aufgabe wurde abgebrochen." } }]);
+    assert.deepEqual(printErrorDetails(stopped), [{ kind: "printer", code: "50348044", texts: { en: "The task was canceled.", de: "Die Aufgabe wurde abgebrochen.", pl: "Zadanie zostało anulowane." } }]);
     assert.deepEqual(printErrorDetails({ print_error: 0, fail_reason: "7" }), [{ kind: "fail", code: "7", texts: null }]);
     assert.equal(printErrorDetails({ print_error: 0, fail_reason: "0" }), null);
 });

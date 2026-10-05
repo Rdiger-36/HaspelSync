@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.2
    - New Features:
       - The Web UI speaks Polish. Pick it in the Web UI section of the settings page or on the login page. Thanks to @tomeko12 (PR #219)
 

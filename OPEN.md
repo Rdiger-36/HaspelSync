@@ -39,6 +39,7 @@ Ordered by how likely a user is to hit it.
 - [ ] **The update check with a newer release.** Only the prerelease path was
   observed, where the running version is ahead of the latest release. The
   "version X is available" path has never been rendered against a real answer.
+  `1.3.1` is the first release that shows it, on every `1.3.0` installation.
 - [x] **What P2S stages 51 and 54 are.** Named in 1.3.0-dev.13: 51 is the
   calibration lines and 54 the heatbed coming up to temperature, both counted
   as preparing. Stages 36 to 77 followed in dev.14 from ha-bambulab's table.
@@ -298,7 +299,7 @@ publishes two images, `haspelsync` and, built on top of it from
 `docker/Dockerfile.legacy`, the old name; a container from the old name says so
 in its log and on the dashboard after every start.
 
-- [ ] Delete the `v1.3.0-dev.*` releases once `v1.3.0` is out, and keep their
+- [x] Delete the `v1.3.0-dev.*` releases once `v1.3.0` is out, and keep their
   tags. A pre-release carries the generated pull request list of one dev step
   and that step's changelog section, and neither is lost with it: the pull
   requests keep their labels, and the dev blocks stay in the history of

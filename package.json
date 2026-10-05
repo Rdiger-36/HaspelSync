@@ -1,6 +1,6 @@
 {
   "name": "haspelsync",
-  "version": "1.3.1-dev.1",
+  "version": "1.3.1",
   "description": "Keeps a Bambu Lab AMS in sync with Spoolman: recognises the loaded spools, links them to the inventory and books what a print used.",
   "main": "entrypoint.js",
   "type": "module",

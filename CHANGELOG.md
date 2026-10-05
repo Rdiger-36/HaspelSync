@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.3
    - New Features:
       - The reason a print failed is shown in Polish too, from Bambu Lab's Polish error catalogue. Until now the Polish Web UI showed it in English
 

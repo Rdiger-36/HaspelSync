@@ -6,6 +6,7 @@ I18N.register("de", "Deutsch", {
     // Language names for the switch in the menu bar
     "language.en": "Englisch",
     "language.de": "Deutsch",
+    "language.pl": "Polnisch",
 
     // Menu bar, on every page
     "menu.dashboard": "Dashboard",

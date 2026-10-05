@@ -5,6 +5,7 @@ I18N.register("pl", "Polski", {
     // Language names
     "language.en": "Angielski",
     "language.de": "Niemiecki",
+    "language.pl": "Polski",
 
 
     // Menu bar

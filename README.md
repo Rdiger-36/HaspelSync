@@ -144,9 +144,9 @@ Adding a language takes one file and no change to any page:
 1. Copy `public/i18n/en.js` to `public/i18n/<code>.js`, named by the two letter ISO 639-1 code of the language, for example `es.js`.
 2. In its first line, replace `I18N.register("en", "English", {` with the code and the language's own name, `I18N.register("es", "Español", {`.
 3. Translate the values and leave the keys alone. Keep every `{placeholder}` and every `<b>`, `<code>` or link exactly as it is. A plural is written as `{ "one": ..., "other": ... }`; use the categories your language has in `Intl.PluralRules`, German and English need `one` and `other`, Polish for example `one`, `few`, `many` and `other`.
-4. Optional: add `"language.<code>"` with the language's name to the other tables, `"language.es": "Spanish"` in `en.js` and `"Spanisch"` in `de.js`, so the language field names it in every language. Without it the field shows the name the file registers itself with.
-5. Optional: fetch Bambu Lab's print error catalogue in that language with `node scripts/fetch-print-errors.js <code>`, so the reason a print failed is shown in it too. A code the catalogue lacks falls back to English.
-6. Run `npm test`. It finds the new file by itself and names every key, placeholder or plural form that is missing or different.
+4. Add `"language.<code>"` to every table, your own included, with the language's name in that table's language: `"language.es": "Spanish"` in `en.js`, `"Spanisch"` in `de.js` and `"Español"` in `es.js`. The test holds every table to the keys of `en.js`, so once the key is there, every table needs it.
+5. Fetch Bambu Lab's print error catalogue in that language with `node scripts/fetch-print-errors.js <code>`, so the reason a print failed is shown in it too. It writes `src/data/print-errors.<code>.json`, which belongs in the same pull request. A code the catalogue lacks falls back to English; if Bambu Lab answers with nothing for your language, say so in the pull request.
+6. Run `npm test`. It finds the new files by itself and names every key, placeholder or plural form that is missing or different.
 
 The service picks the file up on the next page load; the pages load every table in `public/i18n/` through one script, so nothing else has to change. Pull requests with a new language, or with better wording for an existing one, are welcome.
 

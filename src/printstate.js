@@ -24,6 +24,14 @@ import { readJsonFile, writeJsonFile } from "./jsonfile.js";
  * half an hour (P2S, 2026-10-02), had nothing to find it by: the printer's
  * `project_file` echo named it once, before the restart, and the listing by
  * time does not reach that far back. The path does.
+ *
+ * The slots of the running print are kept as well: the mapping the printer
+ * last reported, the AMS refills it went through and the spool last seen in
+ * each slot. All three lived in memory only, and a restart between a spool
+ * running out and the end of the print booked everything on the backup spool,
+ * because the slot that ran out reports empty and the refill was forgotten.
+ * See `refillsBetween()` in gcode.js. Written when one of them changes, which
+ * is a handful of times per print, not on every report.
  */
 
 const SCHEMA_VERSION = 1;
@@ -106,6 +114,52 @@ export function rememberSlicedFile(printerId, filePath) {
 export function recallSlicedFile(printerId, jobName) {
     const path = currentEntry(printerId, jobName)?.filePath;
     return typeof path === "string" && path ? path : null;
+}
+
+/**
+ * Records the slots of the running job: the mapping, the refills and the spool
+ * last seen in each slot.
+ *
+ * Only for a job whose start is recorded, for the reason `rememberSlicedFile()`
+ * gives.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {{mapping: (string|null)[]|null, refills: object[], slotSpools: object}} slots
+ */
+export function rememberPrintSlots(printerId, { mapping, refills, slotSpools }) {
+    const entry = load()[printerId];
+    if (!entry || typeof entry.startedAt !== "number") return;
+    entry.slots = { mapping: mapping ?? null, refills: refills ?? [], slotSpools: slotSpools ?? {} };
+    persist();
+}
+
+/**
+ * The slots recorded for a printer's job, if it is the same job and recent.
+ *
+ * The file is edited by nobody but this module, but it is read after a crash
+ * as well, so every part is checked and a part that does not have the shape
+ * it was written in is dropped rather than trusted. An entry written before
+ * this existed has no slots and gives null.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {string|null} jobName - `subtask_name` the printer reports now
+ * @returns {{mapping: (string|null)[]|null, refills: object[], slotSpools: object}|null}
+ */
+export function recallPrintSlots(printerId, jobName) {
+    const slots = currentEntry(printerId, jobName)?.slots;
+    if (!slots || typeof slots !== "object") return null;
+
+    const mapping = Array.isArray(slots.mapping) && slots.mapping.every(s => s === null || typeof s === "string")
+        ? slots.mapping
+        : null;
+    const refills = Array.isArray(slots.refills)
+        ? slots.refills.filter(r => r && Number.isInteger(r.index) && typeof r.from === "string" && typeof r.to === "string" && Number.isFinite(r.layer))
+        : [];
+    const slotSpools = {};
+    for (const [amsId, candidate] of Object.entries(slots.slotSpools && typeof slots.slotSpools === "object" ? slots.slotSpools : {})) {
+        if (candidate && candidate.amsId === amsId && Number.isFinite(candidate.id)) slotSpools[amsId] = candidate;
+    }
+    return { mapping, refills, slotSpools };
 }
 
 /**

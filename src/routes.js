@@ -37,9 +37,9 @@ import {
     patchSpoolFields,
     getCachedExternalFilaments,
 } from "./spoolman.js";
-import { calcFullConsumption, calcPartialConsumption, completedLayerIndex, testFtpsConnection, resolveSliceSlots, orderedAmsSlots, printStageName, isPreparingStage, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
+import { calcFullConsumption, calcPartialConsumption, completedLayerIndex, testFtpsConnection, resolveSliceSlots, orderedAmsSlots, printStageName, isPreparingStage, splitAtRefills, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { consumptionCandidate, matchConsumption } from "./ams.js";
-import { setupMqtt, closeMqtt, broadcastSlotUpdate, broadcastSSE, testMqttConnection, resetOfflineBackoff, ACTIVE_STATES, printResultCleared, loadSliceInfo, ensureSliceInfo, sliceFetchFailure, runningPrint } from "./mqtt.js";
+import { setupMqtt, closeMqtt, broadcastSlotUpdate, broadcastSSE, testMqttConnection, resetOfflineBackoff, ACTIVE_STATES, printResultCleared, loadSliceInfo, ensureSliceInfo, sliceFetchFailure, runningPrint, rememberedSlotCandidates, emptiedPrintSlots } from "./mqtt.js";
 import { getMappings, setMapping, clearMapping, clearPrinterMappings } from "./mappings.js";
 import {
     claimSlotLocation,
@@ -164,12 +164,17 @@ function resolveSpoolData({ printerId, amsId }, printers, res) {
  *
  * @param {object} consumption - a map already through resolveSliceSlots()
  * @param {object[]} loadedSpools - the client projection of the printer's slots
+ * @param {object|null} [printer] - the runtime printer, when the map is its running print's
  * @returns {object} the same map, for chaining
  */
-function nameMatchedSlots(consumption, loadedSpools) {
+function nameMatchedSlots(consumption, loadedSpools, printer = null) {
     const candidates = loadedSpools
         .filter(spool => spool.slotState !== "Empty")
         .map(consumptionCandidate);
+    // The spools of slots that ran empty during the running print, the way the
+    // booking reaches them, so the dashboard does not move their grams onto a
+    // backup spool of the same colour in the meantime
+    if (printer) candidates.push(...rememberedSlotCandidates(printer, candidates));
 
     const entries = Object.values(consumption);
     const matched = matchConsumption(entries, candidates);
@@ -709,6 +714,7 @@ export function registerRoutes(app, printers) {
         // current print progress (partial for an in-progress/aborted print).
         let fullConsumption = null;
         let consumption     = null;
+        let emptiedSlots    = [];
         if (sliceInfo) {
             const TERMINAL = new Set(["FINISH", "FAILED", "CANCEL"]);
             // The same resolution bookConsumption makes, so the dashboard reads
@@ -717,15 +723,25 @@ export function registerRoutes(app, printers) {
             const reported = printer.currentMapping;
             const slots = reported ?? orderedAmsSlots(loadedSlotIds(loadedSpools));
             const from = { reportedByPrinter: !!reported };
+            // The refills and the remembered spools belong to the running
+            // print, not to a file asked for by name
+            const running = sliceInfo === printer.currentSliceInfo ? printer : null;
+            const split = cons => splitAtRefills(resolveSliceSlots(cons, slots, from), sliceInfo, running?.refills);
 
-            fullConsumption = nameMatchedSlots(resolveSliceSlots(calcFullConsumption(sliceInfo), slots, from), loadedSpools);
+            fullConsumption = nameMatchedSlots(split(calcFullConsumption(sliceInfo)), loadedSpools, running);
             if (state === "FINISH") {
                 consumption = fullConsumption;
             } else if (TERMINAL.has(state) || state === "RUNNING" || state === "PAUSE") {
                 consumption = nameMatchedSlots(
-                    resolveSliceSlots(calcPartialConsumption(sliceInfo, completedLayerIndex(layerNum)), slots, from),
+                    split(calcPartialConsumption(sliceInfo, completedLayerIndex(layerNum))),
                     loadedSpools,
+                    running,
                 );
+            }
+            if (running) {
+                emptiedSlots = emptiedPrintSlots(printer, loadedSpools
+                    .filter(spool => spool.slotState !== "Empty")
+                    .map(consumptionCandidate));
             }
         }
 
@@ -763,6 +779,7 @@ export function registerRoutes(app, printers) {
             loadedSpools,
             fullConsumption,
             consumption,
+            emptiedSlots,
             consumptionBooked: cleared ? false : (printer.consumptionBooked ?? false),
             // The closing report of the last print, and when the card clears
             // itself. Both survive the clearing: the summary is what the

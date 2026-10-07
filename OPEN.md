@@ -13,6 +13,22 @@ rediscovering. Anything finished comes out of this file.
 Most of this has been run against the P2S by now, and the ticks say which.
 Ordered by how likely a user is to hit it.
 
+- [ ] **AMS refill split, booked end to end.** The switch itself was traced on
+  the P2S on 2026-10-07 (spool cut to about 8 g in A3, backup in A4, mapping
+  moved at layer 88 of 235) and `test/refill.test.js` replays it. The split
+  itself was booked end to end the same day against the mock Spoolman: a
+  second refill at layer 89 of 140, cancelled at layer 100, booked 7.47 g on
+  the A3 spool remembered from before it ran out and 0.85 g on A4, both
+  exactly what the G-code weighs, and the report carried both rows with their
+  refill note. Still to do: one in a multi colour print, and a look at an X1
+  or X2D trace. A restart of the service during a real refill was run on the
+  same day: restarted at layer 11, after A3 had run out at layer 5, and again
+  30 seconds after the switch at layer 88, cancelled at layer 119. Both
+  restarts took the slots back from printstate.json, and the booking was
+  7.40 g on the A3 spool and 2.38 g on A4, exactly what the G-code weighs; the
+  entry was empty afterwards. A refill while the service is down is taken at
+  the first layer seen after the restart, so the slot that ran out carries the
+  layers in between; that case is covered by `test/printstate.test.js` only.
 
 - [x] **Booking a print as it actually finishes.** Done on 2026-09-01 against
   the P2S, seven cancelled prints against a throwaway Spoolman. `useSpoolWeight()`

@@ -26,7 +26,7 @@ and `../starting.js`) or the Express app wiring itself (`../backend.js`).
 | `spoolman.js` | Every Spoolman HTTP call. No other module talks to Spoolman directly. |
 | `mappings.js` | Manual AMS-slot → Spoolman-spool assignments, persisted to `printers/mappings.json`. |
 | `presets.js` | The slicer preset names learned from the sliced file, keyed by the `P` hash a chipless slot reports as `tray_info_idx`, persisted to `printers/presets.json` and read once on first use. What turns "PLA · custom preset" into the preset's name and manufacturer. |
-| `printstate.js` | When the running print of each printer started, persisted to `printers/printstate.json` so a restart mid print keeps the clock. Forgotten when the print ends, and a stored start older than a week is not trusted. |
+| `printstate.js` | When the running print of each printer started, and the slots it runs from (the mapping, the AMS refills and the spool last seen in each slot), persisted to `printers/printstate.json` so a restart mid print keeps the clock and books a refill as if nothing had happened. Written only when one of them changes. Forgotten when the print ends, and a stored start older than a week is not trusted. |
 | `jsonfile.js` | `readJsonFile()` and `writeJsonFile()`: a missing file reads as empty, any other failure is logged, and the write goes through a temporary file plus rename. Shared by `mappings.js`, `presets.js`, `printstate.js` and `apikeys.js`. |
 | `routes.js` | All Express handlers, registered by `registerRoutes(app, printers)`. |
 | `openapi.js` | The API as an OpenAPI 3.0 document, served at `/api/openapi.json` and rendered by the API page of the Web UI. Written by hand next to the routes; `test/openapi.test.js` holds it to the routes the app registers, in both directions. |
@@ -259,6 +259,19 @@ build their Spoolman payload from.
   It is followed for as long as the print is active rather than read once: the
   value settles a moment after the start, and one observed report still carried
   the slot the job had been configured with before the user changed it.
+- **A mapping change once the first layer prints is an AMS refill.** When a
+  spool runs out and the AMS takes over from its backup slot, the printer
+  rewrites `print.mapping` of the running job to the new slot (P2S traced, X2D
+  in issue 225). `refillsBetween()` turns the change into a refill with its
+  layer, `printSlotSpools` supplies the spool the emptied slot held, because
+  that slot reports empty long before the switch, and `splitAtRefills()` books
+  the layers before on that spool and the rest on the new one. The remembered
+  spools answer for every emptied slot the print was named for
+  (`rememberedSlotCandidates()`), refill or not: a print ending while the tube
+  empties otherwise lands on the backup spool by colour. `tray_now` and
+  `filam_bak` are not the signal: during the tail in the tube the P2S reported
+  `tray_now` 0 for a slot it never loaded, and the backup group vanished from
+  `filam_bak` the moment the spool ran out.
 - **A position is resolved against the printer, never computed.**
   `resolveSliceSlots()` takes the slots from `orderedAmsSlots()`, which lists the
   four slot units by unit id and then by slot, then the external holder, then an

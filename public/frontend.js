@@ -2941,7 +2941,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     <td data-label="${escapeHtml(t("dashboard.summary.amount"))}" style="text-align:right">${row.grams}g</td>
                     <td data-label="${escapeHtml(t("dashboard.summary.spool"))}">${spool}</td>
                     <td data-label="${escapeHtml(t("dashboard.summary.result"))}"><span class="${status.className}">${escapeHtml(status.label)}</span>${
-                        row.note ? `<div class="gc-summary-note">${escapeHtml(row.note)}</div>` : ""
+                        row.note
+                            ? (row.refill
+                                ? `<div class="gc-summary-note"><span class="gc-warn">⚠</span> ${escapeHtml(row.note)}</div>`
+                                : `<div class="gc-summary-note">${escapeHtml(row.note)}</div>`)
+                            : ""
                     }</td>
                 </tr>`;
             }).join("");
@@ -2982,7 +2986,15 @@ document.addEventListener("DOMContentLoaded", () => {
         // Whether the server said what the print actually used. A cancel before
         // the first layer books 0 g, and 0 is an answer, not a missing one.
         const usedKnown = printData.consumption != null;
-        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, usedKnown };
+        // Slots the print ran empty while it went on taking filament from them.
+        // The server still books them on the spool they held and says which.
+        const emptied = Object.fromEntries((printData.emptiedSlots || []).map(e => [e.amsId, e]));
+        // What the booking left on each spool, for an emptied slot whose spool
+        // is no longer in the AMS list to read it from
+        const bookedRemaining = Object.fromEntries((printData.lastPrintSummary?.rows || [])
+            .filter(row => row.spoolId && row.remainingWeight != null)
+            .map(row => [row.spoolId, row.remainingWeight]));
+        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, usedKnown, emptied, bookedRemaining };
 
         const columns = [
             [t("dashboard.table.spool"), "left"],
@@ -3011,6 +3023,26 @@ document.addEventListener("DOMContentLoaded", () => {
             .reduce((total, e) => total + (e.grams || 0), 0);
     }
 
+    // The Spool cell of a slot that ran empty during the print: the warning,
+    // and the spool it held, which is where its grams are booked.
+    function emptiedIdentityHtml(amsSpool, emptied) {
+        const sp = emptied.spool || {};
+        const colors = filamentColors({ color_hex: sp.colorHex, multi_color_hexes: sp.multiColorHexes });
+        const name = [sp.vendor, sp.name].filter(Boolean).join(" ") || sp.material || `#${sp.id}`;
+        const title = emptied.refill
+            ? t("dashboard.table.ranOutRefillTitle", { to: emptied.refill.to, layer: emptied.refill.layer })
+            : t("dashboard.table.ranOutTitle");
+        const spoolman = sp.id
+            ? `<a class="gc-link" href="${spoolmanBase()}/spool/show/${sp.id}" target="_blank">Spoolman #${sp.id}</a>`
+            : "";
+        return `
+            <span class="gc-warn" title="${escapeHtml(title)}">⚠ ${escapeHtml(t("dashboard.table.ranOut"))}</span><br>
+            ${swatchHtml(colors)}${escapeHtml(name)}<br>
+            <span style="font-size:0.82em">
+                <span class="gc-muted">${escapeHtml(amsSpool.amsId)}</span>${spoolman ? ` · ${spoolman}` : ""}
+            </span>`;
+    }
+
     function createGcodeSpoolRow(amsSpool, ctx) {
         const { fullCons, partCons, keyCount, booked, usedKnown } = ctx;
         const tr = document.createElement("tr");
@@ -3019,8 +3051,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const slot   = amsSpool.slot || {};
         const isEmpty = amsSpool.slotState === "Empty";
-        const needed = isEmpty ? 0 : consumedGrams(fullCons, amsSpool.amsId);
-        const used   = isEmpty ? 0 : consumedGrams(partCons, amsSpool.amsId);
+        // An empty slot the running print still takes filament from, see
+        // emptiedPrintSlots() in src/mqtt.js. Its grams stay on its row.
+        const emptied = isEmpty ? (ctx.emptied?.[amsSpool.amsId] ?? null) : null;
+        const counted = !isEmpty || emptied;
+        const needed = counted ? consumedGrams(fullCons, amsSpool.amsId) : 0;
+        const used   = counted ? consumedGrams(partCons, amsSpool.amsId) : 0;
 
         // On spool: Spoolman remaining/initial weight whenever we know which spool
         // this is (tag link, manual assignment, or the archived spool still in
@@ -3038,6 +3074,11 @@ document.addEventListener("DOMContentLoaded", () => {
             // 62.13 g minus 5.87 g read 56.13 g instead of 56.26 g.
             onSpool = Math.round(sp.remaining_weight * 100) / 100;
             if (sp.initial_weight != null) totalSpool = Math.round(sp.initial_weight);
+        } else if (emptied) {
+            // The spool as it was last seen in the slot, or as the booking left it
+            const left = booked ? ctx.bookedRemaining?.[emptied.spool.id] : emptied.spool.remainingWeight;
+            onSpool = left != null ? Math.round(left * 100) / 100 : null;
+            totalSpool = emptied.spool.initialWeight != null ? Math.round(emptied.spool.initialWeight) : null;
         } else if (onSpool == null && !isEmpty && slot.remain != null && totalSpool) {
             // Fallback if the backend had no AMS weight yet: derive it here from
             // the AMS remain%, same as the legacy table does.
@@ -3068,12 +3109,13 @@ document.addEventListener("DOMContentLoaded", () => {
         // AMS or Spoolman actually knows it. The weight always carries its two
         // decimals, "30.00g", so a column of them lines up and a whole number
         // is not read as a rounded one.
-        const onSpoolCell = onSpool != null && !isEmpty
+        const onSpoolCell = onSpool != null && counted
             ? `${grams2(onSpool)}${totalSpool ? ` / ${totalSpool}g` : ""}`
             : "—";
 
+        const identity = emptied ? emptiedIdentityHtml(amsSpool, emptied) : spoolIdentityHtml(amsSpool, ctx);
         tr.innerHTML = `
-            <td data-label="${escapeHtml(t("dashboard.table.spool"))}" style="text-align:left">${spoolIdentityHtml(amsSpool, ctx)}</td>
+            <td data-label="${escapeHtml(t("dashboard.table.spool"))}" style="text-align:left">${identity}</td>
             <td data-label="${escapeHtml(t("dashboard.table.onSpool"))}" style="text-align:right">${onSpoolCell}</td>
             <td data-label="${escapeHtml(t("dashboard.table.needed"))}" style="text-align:right">${neededCell}</td>
             <td data-label="${escapeHtml(t("dashboard.table.afterPrint"))}" style="text-align:right">${afterPrintCell}</td>

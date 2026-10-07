@@ -170,6 +170,13 @@ function createRuntimePrinter(entry) {
         // The slots the printer says the running print is taking its filaments
         // from, decoded from print.mapping. Null until a print reports them.
         currentMapping: null,
+        // The AMS refills of the running print, each a filament the printer
+        // moved to another slot mid print, with the layer and the spool it
+        // left. See refillsBetween() in gcode.js.
+        refills: [],
+        // The last bookable spool seen in each slot during the running print,
+        // for a refill whose old slot reports empty by the time it happens.
+        printSlotSpools: {},
         // A slice info download still running for the current job, shared
         // between the print handler and /api/print. See ensureSliceInfo().
         sliceFetchInFlight: null,

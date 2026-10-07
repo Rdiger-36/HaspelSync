@@ -22,7 +22,7 @@ and `../starting.js`) or the Express app wiring itself (`../backend.js`).
 | `printers.js` | Loads and writes `printers/printers.json` (or seeds it from the `PRINTER_*` env vars), seeds the mutable per-printer runtime object, and owns add, update and remove. |
 | `mqtt.js` | The engine. Connection lifecycle, message handling, slot processing, print-state tracking, consumption booking, SSE broadcast, monitor loops. |
 | `ams.js` | Pure functions over AMS payloads: normalisation, change detection, spool matching, and `matchConsumption()`, the one decision about which sliced filament comes out of which slot. No I/O. |
-| `gcode.js` | FTPS fetch of the sliced 3MF, `slice_info.config` parsing, consumption maths. |
+| `gcode.js` | FTPS fetch of the sliced 3MF, `slice_info.config` parsing, the per layer weight of every filament counted from the plate's G-code, consumption maths. |
 | `spoolman.js` | Every Spoolman HTTP call. No other module talks to Spoolman directly. |
 | `mappings.js` | Manual AMS-slot → Spoolman-spool assignments, persisted to `printers/mappings.json`. |
 | `presets.js` | The slicer preset names learned from the sliced file, keyed by the `P` hash a chipless slot reports as `tray_info_idx`, persisted to `printers/presets.json` and read once on first use. What turns "PLA · custom preset" into the preset's name and manufacturer. |
@@ -49,7 +49,10 @@ This is the single most important distinction in the codebase.
 sliced `.gcode.3mf` over FTPS. On a terminal state the consumed grams are
 computed (`calcFullConsumption` for `FINISH`, `calcPartialConsumption` for
 `FAILED`/`CANCEL`) and booked via Spoolman's `/use` endpoint. Works for spools
-without an RFID chip.
+without an RFID chip. The slicer's `used_g` is always the amount; the plate's
+G-code, counted per layer by `createExtrusionCounter()`, only decides how a
+partial booking spreads it, and only for a filament whose G-code total agrees
+with the slicer's (`checkLayerExtrusion()`).
 
 **Legacy tracking (`legacyMode() === true`)**: the AMS `remain` percentage is
 converted to a weight and PATCHed onto the spool. The print handler is skipped

@@ -214,7 +214,11 @@ export function runningPrint(printer) {
  */
 function describeSliceInfo(sliceInfo) {
     const model = sliceInfo.modelTitle ? `, model "${sliceInfo.modelTitle}" (the job is named after its print profile)` : "";
-    return `${sliceInfo.filaments.length} filament(s), ${humanLayers(0, sliceInfo.totalLayers).total} layers${model}`;
+    // What a cancel will be booked by, which is what someone checking a
+    // partial booking asks first
+    const read = Object.keys(sliceInfo.extrusion?.shares || {}).length;
+    const perLayer = read ? `, layers weighed from the G-code for ${read} filament(s)` : ", layers counted evenly";
+    return `${sliceInfo.filaments.length} filament(s), ${humanLayers(0, sliceInfo.totalLayers).total} layers${perLayer}${model}`;
 }
 
 /**

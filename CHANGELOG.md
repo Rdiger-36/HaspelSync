@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Version 1.3.4-dev.2
+   - Fixes:
+      - Two dependencies with known security vulnerabilities are updated: proxy-addr, which Express uses to work out the client address behind a proxy (critical), and http-cache-semantics, which comes with the HTTP client (high)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.4-dev.1
    - New Features:
       - A print that runs a spool empty and carries on from the AMS backup slot (auto refill) books each spool what came out of it. Until now the whole print went onto the backup spool, because the printer reports the backup slot as the one the print runs from once it has switched. The spool that ran out now gets the layers up to the switch and the backup spool the rest, weighed from the G-code like a cancelled print, and the print report marks the split rows with a ⚠ and says where the filament was split (issue #225). A restart of the service during such a print keeps it: the slots, the switch and the spool that ran out are kept in printers/printstate.json, and a switch that happened while the service was down is split at the first layer seen afterwards

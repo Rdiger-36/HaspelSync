@@ -6,7 +6,7 @@ import path from "path";
 
 // The module reads its path from config.js at import time, so DATA_DIR has to
 // point at a throwaway directory before the first import.
-let dir, printStatePath, rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, handlePrintStateChange, deltaAsReport, runningPrint;
+let dir, printStatePath, rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, handlePrintStateChange, deltaAsReport, runningPrint;
 
 before(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "ams-printstate-"));
@@ -16,7 +16,7 @@ before(async () => {
     fs.ensureDirSync(process.env.LOG_DIR);
 
     ({ printStatePath } = await import("../src/config.js"));
-    ({ rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile } = await import("../src/printstate.js"));
+    ({ rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots } = await import("../src/printstate.js"));
     ({ handlePrintStateChange, deltaAsReport, runningPrint } = await import("../src/mqtt.js"));
 });
 
@@ -273,5 +273,115 @@ test("a job with the same name as the last one takes its name from the Studio ec
     assert.equal(p.currentJobName, "Würfel");
     assert.equal(p.currentGcodeFile, "Würfel.3mf");
     assert.deepEqual(p.currentMapping, ["A1", "A3", "A4"]);
+    forgetPrintStart("SERIAL");
+});
+
+// The AMS refill of 2026-10-07 on a P2S, as the print handler sees it: filament
+// 3 sliced for A3, A3 reporting empty from layer 5 while the tube printed on,
+// print.mapping moving to A4 at layer 88. See test/refill.test.js.
+const REFILL_SLOT = { tray_info_idx: "GFA01", tray_type: "PLA", tray_color: "FFFFFFFF", cols: ["FFFFFFFF"] };
+const loadedA3 = { amsId: "A3", slot: REFILL_SLOT, existingSpool: { id: 5, remaining_weight: 10, filament: { name: "PLA Matte Jade White", vendor: { name: "Bambu Lab" } } }, connectedViaTag: true };
+const loadedA4 = { amsId: "A4", slot: REFILL_SLOT, existingSpool: { id: 6 }, connectedViaTag: true };
+const emptyA3 = { amsId: "A3", slot: {} };
+const running = (layer, slot) => ({ gcode_state: "RUNNING", subtask_name: "Würfel", layer_num: layer, mapping: [0xFFFF, 0xFFFF, slot] });
+const sliceInfo = { filaments: [], totalLayers: 235, rangesByFilamentIdx: {}, presets: [] };
+
+/** A print up to A3 running out, by the process that saw it begin. */
+async function printUntilRunout() {
+    const p = printer({ spoolData: [] });
+    await handlePrintStateChange(p, { gcode_state: "PREPARE", subtask_name: "Würfel", layer_num: 0, mapping: [0xFFFF, 0xFFFF, 0x0002] });
+    p.currentSliceInfo = sliceInfo;
+    p.spoolData = [loadedA3, loadedA4];
+    await handlePrintStateChange(p, running(1, 0x0002));
+    p.spoolData = [emptyA3, loadedA4];
+    await handlePrintStateChange(p, running(5, 0x0002));
+    return p;
+}
+
+/** The process after a restart, its first report at the given layer and slot. */
+async function afterRestart(layer, slot) {
+    resetPrintStateForTests();
+    const p = printer({ spoolData: [emptyA3, loadedA4], currentSliceInfo: sliceInfo });
+    await handlePrintStateChange(p, running(layer, slot));
+    return p;
+}
+
+test("the handler notes a refill and the spool the emptied slot held", async () => {
+    const p = await printUntilRunout();
+    assert.deepEqual(p.refills, []);
+
+    await handlePrintStateChange(p, running(88, 0x0003));
+    assert.deepEqual(p.currentMapping, [null, null, "A4"]);
+    assert.deepEqual(p.refills, [{ index: 2, from: "A3", to: "A4", layer: 88 }]);
+    assert.equal(p.printSlotSpools.A3.id, 5);
+    forgetPrintStart("SERIAL");
+});
+
+test("a restart after the runout keeps the spool the emptied slot held", async () => {
+    await printUntilRunout();
+    const stored = JSON.parse(fs.readFileSync(printStatePath, "utf-8")).printers.SERIAL.slots;
+    assert.deepEqual(stored.mapping, [null, null, "A3"]);
+    assert.equal(stored.slotSpools.A3.id, 5);
+    // Only what the dashboard names the spool by is written
+    assert.deepEqual(Object.keys(stored.slotSpools.A3.spool).sort(), ["filament", "id", "initial_weight", "remaining_weight"]);
+
+    const p = await afterRestart(40, 0x0002);
+    assert.equal(p.printSlotSpools.A3.id, 5);
+    assert.equal(p.printSlotSpools.A3.spool.filament.vendor.name, "Bambu Lab");
+    assert.deepEqual(p.refills, []);
+
+    // The switch is then seen as it happens
+    await handlePrintStateChange(p, running(88, 0x0003));
+    assert.deepEqual(p.refills, [{ index: 2, from: "A3", to: "A4", layer: 88 }]);
+    forgetPrintStart("SERIAL");
+});
+
+test("a restart after the refill keeps the refill", async () => {
+    const before = await printUntilRunout();
+    await handlePrintStateChange(before, running(88, 0x0003));
+
+    const p = await afterRestart(150, 0x0003);
+    assert.deepEqual(p.refills, [{ index: 2, from: "A3", to: "A4", layer: 88 }]);
+    assert.deepEqual(p.currentMapping, [null, null, "A4"]);
+    assert.equal(p.printSlotSpools.A3.id, 5);
+    forgetPrintStart("SERIAL");
+});
+
+test("a refill while the service was down is taken at the first layer seen after it", async () => {
+    await printUntilRunout();
+
+    // Down from layer 5 to layer 95, the printer switched at 88 meanwhile
+    const p = await afterRestart(95, 0x0003);
+    assert.deepEqual(p.refills, [{ index: 2, from: "A3", to: "A4", layer: 95 }]);
+    assert.equal(p.mappingRestored, false);
+    forgetPrintStart("SERIAL");
+});
+
+test("the slots of another job are not taken over", async () => {
+    await printUntilRunout();
+    resetPrintStateForTests();
+    assert.equal(recallPrintSlots("SERIAL", "Something else"), null);
+    forgetPrintStart("SERIAL");
+    assert.equal(recallPrintSlots("SERIAL", "Würfel"), null);
+});
+
+test("stored slots that lost their shape are dropped, not trusted", () => {
+    rememberPrintStart("SERIAL", "Würfel", Date.now() - 1000);
+    rememberPrintSlots("SERIAL", {
+        mapping: [null, 3, "A4"],
+        refills: [{ index: 2, from: "A3", to: "A4", layer: 88 }, { index: "2", from: "A3" }],
+        slotSpools: { A3: { amsId: "A3", id: 5 }, A4: { amsId: "B1", id: 6 }, A1: { amsId: "A1" } },
+    });
+    resetPrintStateForTests();
+    assert.deepEqual(recallPrintSlots("SERIAL", "Würfel"), {
+        mapping: null,
+        refills: [{ index: 2, from: "A3", to: "A4", layer: 88 }],
+        slotSpools: { A3: { amsId: "A3", id: 5 } },
+    });
+
+    // An entry written before the slots existed
+    rememberPrintStart("SERIAL", "Würfel", Date.now() - 1000);
+    resetPrintStateForTests();
+    assert.equal(recallPrintSlots("SERIAL", "Würfel"), null);
     forgetPrintStart("SERIAL");
 });

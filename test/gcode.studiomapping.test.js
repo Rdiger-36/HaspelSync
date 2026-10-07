@@ -1,3 +1,5 @@
+// First, so the modules below read a throwaway DATA_DIR, see the helper
+import "./helpers/tempdata.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "fs";
@@ -121,7 +123,11 @@ test("the list order alone would have named the wrong slots for two of the three
 
 // The hand-over on the printer object: the echo arrives before the state
 // changes, is kept, and becomes the mapping of the print of that name.
+// A serial of its own per printer, so a print one test leaves running in
+// printstate.json is not found again by the next as a print already underway
+let printerCount = 0;
 const freshPrinter = () => ({
+    id: `TEST${++printerCount}`,
     name: "Test Printer",
     logFilePath: "/dev/null",
     currentGcodeState: "IDLE",

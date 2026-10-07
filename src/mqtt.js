@@ -22,7 +22,7 @@ import {
 import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { getMapping, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
-import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile } from "./printstate.js";
+import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots } from "./printstate.js";
 import { uniqueSpoolForSlot } from "../public/match.js";
 import { humanLayers } from "../public/shared.js";
 import { describePrintError, describePrintErrorInAll } from "./printerrors.js";
@@ -761,6 +761,7 @@ export async function handlePrintStateChange(printer, print) {
         if (recalled) {
             console.log(printer.name, printer.logFilePath,
                 `[Print] Found "${jobName ?? "the job"}" already running, started ${new Date(recalled).toISOString()}${printer.currentFilePath ? `, its sliced file was read from ${printer.currentFilePath}` : ""}`);
+            restorePrintSlots(printer, jobName);
         } else {
             rememberPrintStart(printer.id, jobName, printer.printStartedAt);
         }
@@ -874,17 +875,28 @@ export async function handlePrintStateChange(printer, print) {
     // refillsBetween(): the last value names the slot the print finished
     // from, and the refill remembers the one before it.
     if (ACTIVE_STATES.has(newState)) {
-        rememberPrintSlotSpools(printer);
+        let slotsChanged = rememberPrintSlotSpools(printer);
         const reported = decodePrintMapping(print.mapping);
         if (reported && JSON.stringify(reported) !== JSON.stringify(printer.currentMapping)) {
             for (const refill of refillsBetween(printer.currentMapping, reported, layerNum)) {
                 const spool = printer.printSlotSpools?.[refill.from] ?? null;
-                (printer.refills ||= []).push({ ...refill, layer: layerNum, spool });
+                (printer.refills ||= []).push({ ...refill, layer: layerNum });
+                // The mapping was restored from before a restart and the
+                // printer moved on while nobody was listening, so the switch
+                // happened somewhere in the layers that went unseen
+                const unseen = printer.mappingRestored
+                    ? `, while the service was not running: the switch is taken as this layer, the first one seen since, so ${refill.from} carries the layers in between`
+                    : "";
                 console.log(printer.name, printer.logFilePath,
-                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill: layers 1 to ${layerNum - 1} go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
+                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill${unseen}: layers 1 to ${layerNum - 1} go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
             }
             printer.currentMapping = reported;
+            slotsChanged = true;
             console.log(printer.name, printer.logFilePath, `[Print] The printer reports its slots as ${JSON.stringify(reported)}`);
+        }
+        printer.mappingRestored = false;
+        if (slotsChanged) {
+            rememberPrintSlots(printer.id, { mapping: printer.currentMapping, refills: printer.refills, slotSpools: printer.printSlotSpools });
         }
     }
 
@@ -1197,13 +1209,67 @@ async function archiveWhenEmpty(printer, spool) {
  * @param {object} printer - the runtime printer
  */
 function rememberPrintSlotSpools(printer) {
+    let changed = false;
     for (const uiSpool of printer.spoolData || []) {
         if (!uiSpool.connectedViaMapping && !uiSpool.connectedViaTag) continue;
         const candidate = consumptionCandidate(uiSpool);
-        // The Spoolman record goes along for the dashboard, which names the
-        // spool of an emptied slot from it, see emptiedPrintSlots()
-        if (candidate.id) (printer.printSlotSpools ||= {})[candidate.amsId] = { ...candidate, spool: uiSpool.existingSpool };
+        if (!candidate.id) continue;
+        const spools = printer.printSlotSpools ||= {};
+        if (spools[candidate.amsId]?.id !== candidate.id) changed = true;
+        // The part of the Spoolman record the dashboard names the spool of an
+        // emptied slot by, see emptiedPrintSlots(), kept small because it is
+        // written to printstate.json as well
+        spools[candidate.amsId] = { ...candidate, spool: spoolSnapshot(uiSpool.existingSpool) };
     }
+    return changed;
+}
+
+/**
+ * What of a Spoolman spool record is kept for a slot of the running print.
+ *
+ * @param {object|null} sp - the spool as Spoolman returned it
+ * @returns {object|null}
+ */
+function spoolSnapshot(sp) {
+    if (!sp) return null;
+    const f = sp.filament || {};
+    return {
+        id: sp.id,
+        remaining_weight: sp.remaining_weight ?? null,
+        initial_weight: sp.initial_weight ?? null,
+        filament: {
+            name: f.name ?? null,
+            material: f.material ?? null,
+            color_hex: f.color_hex ?? null,
+            multi_color_hexes: f.multi_color_hexes ?? null,
+            vendor: f.vendor?.name ? { name: f.vendor.name } : null,
+        },
+    };
+}
+
+/**
+ * Takes back the slots of a print the service finds already running after a
+ * restart, see `recallPrintSlots()` in printstate.js.
+ *
+ * The mapping is restored so the first report can be compared with it: a
+ * printer that moved a filament to its backup slot while the service was down
+ * reports the new slot, and that is still a refill.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {string|null} jobName - `subtask_name` of the job
+ */
+function restorePrintSlots(printer, jobName) {
+    const slots = recallPrintSlots(printer.id, jobName);
+    if (!slots) return;
+    printer.printSlotSpools = slots.slotSpools;
+    printer.refills = slots.refills;
+    if (slots.mapping && !printer.currentMapping) {
+        printer.currentMapping = slots.mapping;
+        printer.mappingRestored = true;
+    }
+    const spools = Object.values(slots.slotSpools).map(c => `${c.amsId} spool ${c.id}`);
+    console.log(printer.name, printer.logFilePath,
+        `[Print] Slots taken back from before the restart: ${JSON.stringify(slots.mapping)}, ${slots.refills.length} refill(s), ${spools.length ? spools.join(", ") : "no spools"}`);
 }
 
 /**

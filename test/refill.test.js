@@ -135,50 +135,6 @@ test("the summary says why one filament sits on two spools", async () => {
     assert.equal(refillNote({ grams: 1 }), null);
 });
 
-test("the print handler notes the refill and the spool the emptied slot held", async () => {
-    const { handlePrintStateChange } = await import("../src/mqtt.js");
-    const printer = {
-        name: "Test Printer",
-        logFilePath: "/dev/null",
-        currentGcodeState: "IDLE",
-        currentJobName: null,
-        currentLayerNum: 0,
-        currentSliceInfo: null,
-        sliceFetchDone: true,
-        consumptionBooked: false,
-        currentMapping: null,
-        pendingMapping: null,
-        lastPrintSummary: null,
-        lastPrintError: null,
-        spoolData: [],
-    };
-    const slot = { tray_info_idx: "GFA01", tray_type: "PLA", tray_color: "FFFFFFFF", cols: ["FFFFFFFF"] };
-    const report = (layer, mapping) => ({ gcode_state: "RUNNING", subtask_name: "Würfel", layer_num: layer, mapping });
-
-    await handlePrintStateChange(printer, { gcode_state: "PREPARE", subtask_name: "Würfel", layer_num: 0, mapping: [0xFFFF, 0xFFFF, 0x0002] });
-    // Already loaded, so the handler does not go looking for the file
-    printer.currentSliceInfo = { filaments: [], totalLayers: 235, rangesByFilamentIdx: {}, presets: [] };
-
-    printer.spoolData = [
-        { amsId: "A3", slot, existingSpool: { id: 5 }, connectedViaTag: true },
-        { amsId: "A4", slot, existingSpool: { id: 6 }, connectedViaTag: true },
-    ];
-    await handlePrintStateChange(printer, report(1, [0xFFFF, 0xFFFF, 0x0002]));
-
-    // Layer 5: A3 runs out at the AMS and reports empty from here on
-    printer.spoolData = [{ amsId: "A3", slot: {} }, printer.spoolData[1]];
-    await handlePrintStateChange(printer, report(5, [0xFFFF, 0xFFFF, 0x0002]));
-    assert.deepEqual(printer.refills, []);
-
-    await handlePrintStateChange(printer, report(88, [0xFFFF, 0xFFFF, 0x0003]));
-    assert.deepEqual(printer.currentMapping, [null, null, "A4"]);
-    assert.equal(printer.refills.length, 1);
-    const [refill] = printer.refills;
-    assert.deepEqual({ index: refill.index, from: refill.from, to: refill.to, layer: refill.layer }, REFILL);
-    assert.equal(refill.spool.id, 5);
-    assert.equal(refill.spool.amsId, "A3");
-});
-
 // The other half of what the second P2S run showed: A3 reported empty from
 // layer 6, 83 layers before the mapping moved. A print that ends in between
 // has no refill at all and still printed every gram from A3.

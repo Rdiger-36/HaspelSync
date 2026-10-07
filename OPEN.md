@@ -21,10 +21,12 @@ Ordered by how likely a user is to hit it.
   the A3 spool remembered from before it ran out and 0.85 g on A4, both
   exactly what the G-code weighs, and the report carried both rows with their
   refill note. Still to do: one in a multi colour print, and a look at an X1
-  or X2D trace. One gap by design for now: the refills of a print and the
-  spools remembered for its slots are held in memory, so a restart of the
-  service between a spool running out and the end of the print books
-  everything on the backup slot again.
+  or X2D trace, and a restart of the service during a real refill: once
+  after the runout and once after the switch. Both are covered by
+  `test/printstate.test.js`, where the mapping, the refills and the spools of
+  the slots are kept in printstate.json. A refill while the service is down is
+  taken at the first layer seen after the restart, so the slot that ran out
+  carries the layers in between.
 
 - [x] **Booking a print as it actually finishes.** Done on 2026-09-01 against
   the P2S, seven cancelled prints against a throwaway Spoolman. `useSpoolWeight()`

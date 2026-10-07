@@ -1,6 +1,11 @@
-# Weekly update pull requests for everything the image and the workflows pull
-# in. The Docker image installs from package-lock.json only, so a security fix
-# in a transitive package never reaches a build until the lock file changes.
+# Weekly update pull requests for the npm packages and the workflow actions.
+# The Docker image installs from package-lock.json only, so a security fix in a
+# transitive package never reaches a build until the lock file changes.
+#
+# The base image is left out on purpose: node:22-alpine is a floating tag, so
+# every build already pulls the latest Node 22 and Alpine fixes, and the only
+# thing Dependabot could propose for it is a major jump, odd non-LTS releases
+# included. Moving to the next LTS is done by hand.
 #
 # Every pull request is labelled "maintenance" so the release notes file it
 # where .github/release.yml expects it. Minor and patch updates are grouped
@@ -20,15 +25,6 @@ updates:
         update-types:
           - minor
           - patch
-
-  - package-ecosystem: docker
-    directory: /docker
-    schedule:
-      interval: weekly
-    labels:
-      - maintenance
-    commit-message:
-      prefix: chore
 
   - package-ecosystem: github-actions
     directory: /

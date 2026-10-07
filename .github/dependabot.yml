@@ -1,0 +1,44 @@
+# Weekly update pull requests for everything the image and the workflows pull
+# in. The Docker image installs from package-lock.json only, so a security fix
+# in a transitive package never reaches a build until the lock file changes.
+#
+# Every pull request is labelled "maintenance" so the release notes file it
+# where .github/release.yml expects it. Minor and patch updates are grouped
+# into one pull request per ecosystem; a major update gets its own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - maintenance
+    commit-message:
+      prefix: chore
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    labels:
+      - maintenance
+    commit-message:
+      prefix: chore
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - maintenance
+    commit-message:
+      prefix: chore
+    groups:
+      actions:
+        patterns:
+          - "*"

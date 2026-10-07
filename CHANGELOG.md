@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - New Features:
+      - A cancelled or failed print books what its layers really used. The service reads the G-code in the sliced file and weighs every layer, where it used to give each layer the same share. A cube cancelled after 8 of its 11 layers booked 1.41 g before and 1.12 g now, because its middle layers are sparse infill. A filament whose G-code does not add up to what the slicer says keeps the even share. A finished print books exactly what it did before
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.3
    - New Features:
       - The reason a print failed is shown in Polish too, from Bambu Lab's Polish error catalogue. Until now the Polish Web UI showed it in English

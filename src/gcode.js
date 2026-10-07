@@ -1,8 +1,9 @@
 import * as ftp from "basic-ftp";
 import AdmZip from "adm-zip";
-import { Writable } from "stream";
+import { Readable, Writable } from "stream";
+import { createInterface } from "readline";
 import { createHash } from "crypto";
-import { inflateRawSync } from "zlib";
+import { createInflateRaw, inflateRawSync } from "zlib";
 
 import { EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT, convertAMSandSlot, describeConnectionError, connectionErrorCode } from "./utils.js";
 import { debug, trace } from "./logger.js";
@@ -184,6 +185,7 @@ export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileNam
         // infill". The model's own title is in the file and nowhere else.
         const model = zip.getEntry("3D/3dmodel.model");
         parsed.modelTitle = model ? modelTitleFor(jobName, parseModelNames(model.getData().toString("utf8"))) : null;
+        parsed.extrusion = await readPlateExtrusion(zip, gcodeFile, parsed, printer);
         record.sliceInfo = true;
 
         trace("gcode", printer.name, printer.logFilePath,
@@ -1064,6 +1066,231 @@ export function completedLayerIndex(layerNum) {
 }
 
 /**
+ * How far the filament the G-code extrudes may lie from `used_m` in
+ * `slice_info.config` before the G-code is not trusted for that filament.
+ *
+ * The slicer leaves the purge line of the start G-code out of `used_m`, and
+ * that line is about 0.14 m on every Bambu Lab start G-code read so far. On a
+ * plate of 0.29 m that is a third of the whole, so the absolute allowance has
+ * to cover it. Measured on three P1S plates sliced by Bambu Studio 1.9 and
+ * 2.0: 27.29 m against 27.16, 1.50 against 1.40, 0.39 against 0.29.
+ */
+export const EXTRUSION_TOLERANCE = { metres: 0.35, share: 0.1 };
+
+/**
+ * Counts the filament a G-code extrudes, per filament and per layer, one line
+ * at a time.
+ *
+ * Fed line by line so the caller can stream a G-code of a few hundred
+ * megabytes without holding it, see `readPlateExtrusion()`.
+ *
+ * - The layer is the `L` of `M73 L<n>`, which is the command that sets the
+ *   layer the printer reports as `layer_num`, so both count the same way:
+ *   1 is the first layer, and 0 is everything before it, the start G-code
+ *   with its purge line.
+ * - The filament is the `n` of `T<n>`, 0-based like the indices of
+ *   `layer_filament_list`, so filament id 3 of `slice_info.config` is `T2`.
+ *   `T255` and `T1000` unload and select nothing, so the filament stays what
+ *   it was. Extrusion before the first `T` belongs to the first filament.
+ * - The flush after a filament change is counted where the G-code extrudes
+ *   it. A P1S and an X1 flush in G-code after the `T`, so it counts for the
+ *   new filament on the layer of the change. A P2S leaves the flush to the
+ *   firmware, `M620.10 ... L<mm>` with the extrusion lines commented out, so
+ *   there it is not counted at all: 79 mm on the two colour fixture, which
+ *   the slicer splits between both filaments in a way not worked out here.
+ *   `checkLayerExtrusion()` scales the layers to the slicer's amount anyway,
+ *   so the flush is still booked, only spread over the filament's layers.
+ * - `M83` and `M82` switch between relative and absolute extrusion, and `G92 E`
+ *   resets the absolute position. Bambu Studio writes relative extrusion, the
+ *   absolute branch is there for a G-code that does not.
+ * - A retraction is negative extrusion and is counted as such, so it cancels
+ *   against the move that pushes the filament back.
+ *
+ * @returns {{line: (text: string) => void, result: () => {[index: number]: number[]}}}
+ *   `result()` gives millimetres per layer for every filament that extruded anything
+ */
+export function createExtrusionCounter() {
+    const byFilament = {};
+    let filament = null;
+    let layer = 0;
+    let relative = true;
+    let position = 0;
+    let beforeFirst = 0;
+
+    return {
+        line(text) {
+            const cut = text.indexOf(";");
+            const code = (cut === -1 ? text : text.slice(0, cut)).trim();
+            if (!code) return;
+            const command = code.split(/\s+/, 1)[0];
+
+            if (command === "M83") { relative = true; return; }
+            if (command === "M82") { relative = false; return; }
+            if (command === "G92") {
+                const reset = /\bE(-?[\d.]+)/.exec(code);
+                if (reset) position = Number(reset[1]);
+                return;
+            }
+            if (command === "M73") {
+                const next = /\bL(\d+)/.exec(code);
+                if (next) layer = Number(next[1]);
+                return;
+            }
+            const tool = /^T(\d+)$/.exec(command);
+            if (tool) {
+                const index = Number(tool[1]);
+                if (index >= 255) return;
+                if (filament === null && beforeFirst) {
+                    (byFilament[index] ||= [])[0] = beforeFirst;
+                    beforeFirst = 0;
+                }
+                filament = index;
+                return;
+            }
+            if (!/^G[0-3]$/.test(command)) return;
+
+            const e = /\bE(-?[\d.]+)/.exec(code);
+            if (!e) return;
+            let amount = Number(e[1]);
+            if (!Number.isFinite(amount)) return;
+            if (!relative) {
+                const absolute = amount;
+                amount = absolute - position;
+                position = absolute;
+            }
+            if (filament === null) {
+                beforeFirst += amount;
+                return;
+            }
+            const layers = byFilament[filament] ||= [];
+            layers[layer] = (layers[layer] || 0) + amount;
+        },
+        result() {
+            const out = {};
+            for (const [index, layers] of Object.entries(byFilament)) {
+                out[index] = Array.from(layers, mm => mm || 0);
+            }
+            return out;
+        },
+    };
+}
+
+/**
+ * Turns the millimetres per layer of `createExtrusionCounter()` into the share
+ * of each filament that is used up by the end of every layer, for the
+ * filaments whose total agrees with `slice_info.config`.
+ *
+ * The slicer's `used_g` stays the amount that is booked. The G-code only says
+ * how that amount spreads over the layers, which is what the layer count alone
+ * cannot: the flush of a filament change lands on the layer of the change, and
+ * a layer of infill weighs more than a layer of a thin spire. A filament whose
+ * G-code total does not agree is left out and keeps the even spread over its
+ * layers, see `EXTRUSION_TOLERANCE`. That is the safety net for a G-code this
+ * counter reads wrongly, a dual nozzle printer's tool changes among them,
+ * which no file here has shown yet.
+ *
+ * @param {{[index: number]: number[]}} perLayer - millimetres per layer and filament
+ * @param {object[]} filaments - `sliceInfo.filaments`
+ * @returns {{shares: {[index: number]: number[]}, rejected: {id: number, gcodeMetres: number, slicedMetres: number}[]}}
+ *   `shares[index][L]` is the share used up once layer L is complete, the last entry 1
+ */
+export function checkLayerExtrusion(perLayer, filaments) {
+    const shares = {};
+    const rejected = [];
+    for (const f of filaments) {
+        if (!(f.used_m > 0)) continue;
+        const layers = perLayer[f.index] || [];
+        const total = layers.reduce((sum, mm) => sum + mm, 0);
+        const metres = total / 1000;
+        const allowed = Math.max(EXTRUSION_TOLERANCE.metres, f.used_m * EXTRUSION_TOLERANCE.share);
+        if (!(total > 0) || Math.abs(metres - f.used_m) > allowed) {
+            rejected.push({ id: f.id, gcodeMetres: Math.round(metres * 100) / 100, slicedMetres: f.used_m });
+            continue;
+        }
+        let running = 0;
+        shares[f.index] = layers.map(mm => {
+            running += mm;
+            return Math.min(1, Math.max(0, running / total));
+        });
+        shares[f.index][layers.length - 1] = 1;
+    }
+    return { shares, rejected };
+}
+
+/**
+ * The G-code entry of the plate being printed, or null when the archive does
+ * not say which one it is.
+ *
+ * @param {object} zip - the opened archive, an AdmZip
+ * @param {string|null} gcodeFile - `gcode_file` from the report
+ * @returns {object|null} the AdmZip entry
+ */
+function plateGcodeEntry(zip, gcodeFile) {
+    const plate = reportedPlate(gcodeFile);
+    if (plate !== null) return zip.getEntry(`Metadata/plate_${plate}.gcode`);
+    const plates = zip.getEntries().filter(e => /^Metadata\/plate_\d+\.gcode$/.test(e.entryName));
+    return plates.length === 1 ? plates[0] : null;
+}
+
+/**
+ * Runs a G-code entry of the archive through `createExtrusionCounter()`.
+ *
+ * The archive is already in memory, but the G-code in it is up to a few
+ * hundred megabytes once inflated. Inflating it in one call would hold all of
+ * it and block the event loop for as long as that takes, so it is inflated as
+ * a stream and counted line by line. 23 MB of G-code took a third of a second.
+ *
+ * @param {object} entry - the AdmZip entry of the G-code
+ * @returns {Promise<{[index: number]: number[]}>} millimetres per layer and filament
+ */
+export async function countPlateExtrusion(entry) {
+    const source = Readable.from([entry.getCompressedData()]);
+    // 8 is deflate, 0 is stored, the two methods a sliced 3MF has been seen with
+    const stream = entry.header.method === 8 ? source.pipe(createInflateRaw()) : source;
+    const counter = createExtrusionCounter();
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+        counter.line(line);
+    }
+    return counter.result();
+}
+
+/**
+ * Reads the plate's G-code out of the sliced file and works out how each
+ * filament's consumption spreads over the layers, see `checkLayerExtrusion()`.
+ *
+ * Never throws: without the G-code the booking spreads evenly over the
+ * layers, as it did before this existed.
+ *
+ * @param {object} zip - the opened archive, an AdmZip
+ * @param {string|null} gcodeFile - `gcode_file` from the report
+ * @param {object} sliceInfo - what `parseSliceInfo()` made of the same archive
+ * @param {object} printer - the printer runtime object, for the log
+ * @returns {Promise<{shares: object, rejected: object[]}|null>}
+ */
+async function readPlateExtrusion(zip, gcodeFile, sliceInfo, printer) {
+    const entry = plateGcodeEntry(zip, gcodeFile);
+    if (!entry) {
+        debug("gcode", printer.name, printer.logFilePath,
+            "[Print] No G-code in the archive for this plate, consumption is spread evenly over the layers");
+        return null;
+    }
+    try {
+        const checked = checkLayerExtrusion(await countPlateExtrusion(entry), sliceInfo.filaments);
+        for (const r of checked.rejected) {
+            console.log(printer.name, printer.logFilePath,
+                `[Print] Filament ${r.id}: the G-code extrudes ${r.gcodeMetres} m where the slicer says ${r.slicedMetres} m, its consumption is spread evenly over the layers`);
+        }
+        debug("gcode", printer.name, printer.logFilePath,
+            `[Print] Read ${entry.entryName}, consumption per layer known for filament(s) ${Object.keys(checked.shares).map(i => Number(i) + 1).join(", ") || "none"}`);
+        return checked;
+    } catch (err) {
+        console.log(printer.name, printer.logFilePath,
+            `[Print] Could not read ${entry.entryName}: ${err.message}, consumption is spread evenly over the layers`);
+        return null;
+    }
+}
+
+/**
  * Calculates consumed grams per tray_info_idx up to a given layer (for
  * failed/cancelled prints).
  *
@@ -1074,9 +1301,12 @@ export function completedLayerIndex(layerNum) {
  * restricted to certain layers (e.g. a different top color) the estimate is
  * more accurate.
  *
- * Purge is scaled proportionally as part of used_g. Not perfectly accurate
- * (purge happens discretely at tool changes) but a solid best-effort estimate
- * without parsing the full multi-MB G-code.
+ * When the plate's G-code was read, `sliceInfo.extrusion` says how much of
+ * each filament is used up by the end of every layer, and that share replaces
+ * the layer count: the flush of a filament change then lands on the layer it
+ * happens in, rather than being spread over every layer of the filament. A
+ * filament the G-code was not trusted for keeps the layer count, see
+ * `checkLayerExtrusion()`.
  *
  * `upToLayer` is the last completed layer as a 0-based index into the sliced
  * file's layers, which is not what the printer reports: see
@@ -1093,10 +1323,15 @@ export function calcPartialConsumption(sliceInfo, upToLayer) {
         if (!f.tray_info_idx) continue;
 
         const ranges = sliceInfo.rangesByFilamentIdx[f.index] || [];
+        const shares = sliceInfo.extrusion?.shares?.[f.index];
 
         // No layer data → fall back to global progress fraction
         let proportion;
-        if (ranges.length === 0) {
+        if (shares?.length) {
+            // Index 0 of the shares is the start G-code, so the last
+            // completed layer as a 0-based index is one further along
+            proportion = shares[Math.min(upToLayer + 1, shares.length - 1)];
+        } else if (ranges.length === 0) {
             proportion = sliceInfo.totalLayers > 0
                 ? Math.min(1, (upToLayer + 1) / (sliceInfo.totalLayers + 1))
                 : 0;

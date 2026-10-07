@@ -16,7 +16,7 @@ import {
     splitAtRefills,
 } from "../src/gcode.js";
 import { matchConsumption, consumptionCandidate } from "../src/ams.js";
-import { refillNote } from "../src/mqtt.js";
+import { refillNote, rememberedSlotCandidates } from "../src/mqtt.js";
 
 // An AMS refill traced on a P2S on 2026-10-07. "Würfel", 235 layers, 20.09 g
 // of PLA Basic white sliced as filament 3. A3 held a spool cut down to about
@@ -130,7 +130,7 @@ test("the summary says why one filament sits on two spools", async () => {
     const consumption = resolveSliceSlots(calcFullConsumption(sliceInfo), [null, null, "A4"], { reportedByPrinter: true });
     const split = splitAtRefills(consumption, sliceInfo, [REFILL]);
     const note = amsId => refillNote(Object.values(split).find(e => e.amsId === amsId));
-    assert.equal(note("A3"), "Printed from A3 up to layer 88, where the AMS ran out and switched to A4.");
+    assert.equal(note("A3"), "Printed from A3 through layer 87. The AMS ran out during layer 88 and switched to A4.");
     assert.equal(note("A4"), "Printed from A4 from layer 88 on, after the AMS switched over from A3.");
     assert.equal(refillNote({ grams: 1 }), null);
 });
@@ -177,4 +177,41 @@ test("the print handler notes the refill and the spool the emptied slot held", a
     assert.deepEqual({ index: refill.index, from: refill.from, to: refill.to, layer: refill.layer }, REFILL);
     assert.equal(refill.spool.id, 5);
     assert.equal(refill.spool.amsId, "A3");
+});
+
+// The other half of what the second P2S run showed: A3 reported empty from
+// layer 6, 83 layers before the mapping moved. A print that ends in between
+// has no refill at all and still printed every gram from A3.
+test("a print that ends while the tube empties books on the spool the emptied slot held", async () => {
+    const sliceInfo = await load();
+    const consumption = resolveSliceSlots(calcPartialConsumption(sliceInfo, completedLayerIndex(50)), [null, null, "A3"], { reportedByPrinter: true });
+    const entries = Object.values(consumption);
+
+    const slot = { tray_info_idx: "GFA01", tray_type: "PLA", tray_color: "FFFFFFFF", cols: ["FFFFFFFF"] };
+    const remembered = consumptionCandidate({ amsId: "A3", slot, existingSpool: { id: 5 }, connectedViaTag: true });
+    const loaded = consumptionCandidate({ amsId: "A4", slot, existingSpool: { id: 6 }, connectedViaTag: true });
+    const printer = { currentMapping: [null, null, "A3"], refills: [], printSlotSpools: { A3: remembered, A4: loaded } };
+
+    // Without the remembered spool the colour stages land on the backup
+    assert.equal(matchConsumption(entries, [loaded]).get(entries[0])?.[0]?.id, 6);
+
+    const added = rememberedSlotCandidates(printer, [loaded]);
+    assert.deepEqual(added.map(c => c.id), [5]);
+    assert.equal(matchConsumption(entries, [loaded, ...added]).get(entries[0])?.[0]?.id, 5);
+});
+
+test("only an emptied slot the print was named for is remembered", () => {
+    const candidate = (amsId, id) => consumptionCandidate({ amsId, slot: { tray_info_idx: "GFA01", tray_color: "FFFFFFFF" }, existingSpool: { id }, connectedViaTag: true });
+    const printer = {
+        currentMapping: [null, null, "A4"],
+        refills: [{ index: 2, from: "A3", to: "A4", layer: 88 }],
+        printSlotSpools: { A1: candidate("A1", 1), A3: candidate("A3", 5), A4: candidate("A4", 6), B2: candidate("B2", 9) },
+    };
+    // A1 is loaded and answers for itself, B2 was emptied by hand and never printed
+    const live = [candidate("A1", 1), candidate("A4", 6)];
+    assert.deepEqual(rememberedSlotCandidates(printer, live).map(c => c.amsId), ["A3"]);
+
+    // A3 holds a spool again, which then answers for it
+    assert.deepEqual(rememberedSlotCandidates(printer, [...live, candidate("A3", 7)]), []);
+    assert.deepEqual(rememberedSlotCandidates({}, live), []);
 });

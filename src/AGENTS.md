@@ -265,7 +265,10 @@ build their Spoolman payload from.
   in issue 225). `refillsBetween()` turns the change into a refill with its
   layer, `printSlotSpools` supplies the spool the emptied slot held, because
   that slot reports empty long before the switch, and `splitAtRefills()` books
-  the layers before on that spool and the rest on the new one. `tray_now` and
+  the layers before on that spool and the rest on the new one. The remembered
+  spools answer for every emptied slot the print was named for
+  (`rememberedSlotCandidates()`), refill or not: a print ending while the tube
+  empties otherwise lands on the backup spool by colour. `tray_now` and
   `filam_bak` are not the signal: during the tail in the tube the P2S reported
   `tray_now` 0 for a slot it never loaded, and the backup group vanished from
   `filam_bak` the moment the spool ran out.

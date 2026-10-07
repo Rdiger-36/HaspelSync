@@ -881,7 +881,7 @@ export async function handlePrintStateChange(printer, print) {
                 const spool = printer.printSlotSpools?.[refill.from] ?? null;
                 (printer.refills ||= []).push({ ...refill, layer: layerNum, spool });
                 console.log(printer.name, printer.logFilePath,
-                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill: the layers before go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
+                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill: layers 1 to ${layerNum - 1} go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
             }
             printer.currentMapping = reported;
             console.log(printer.name, printer.logFilePath, `[Print] The printer reports its slots as ${JSON.stringify(reported)}`);
@@ -1205,6 +1205,36 @@ function rememberPrintSlotSpools(printer) {
 }
 
 /**
+ * The spools a print ran from that the AMS no longer reports, so the booking
+ * can still reach them.
+ *
+ * A spool that runs out reports its slot empty long before the print stops
+ * taking filament from it: on the P2S the AMS sensor sits a tube's length
+ * before the nozzle, and with a long tube that was 82 layers. A print that
+ * ends in that time, or one that refilled and moved on, has its last layers
+ * from a slot with no spool in it, and without this the colour stages of
+ * matchConsumption() found the backup spool instead, which holds the same
+ * filament and had printed none of it.
+ *
+ * Only slots the printer named for this print qualify, through its mapping or
+ * as the slot a refill left. A slot emptied by hand that the print never used
+ * stays out, so its spool cannot be found by colour for some other filament.
+ * A slot that holds a spool again is answered by that spool.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {object[]} live - the candidates from the slots as the AMS reports them now
+ * @returns {object[]} the remembered candidates to add
+ */
+export function rememberedSlotCandidates(printer, live) {
+    const named = new Set([
+        ...(printer.currentMapping || []),
+        ...(printer.refills || []).map(refill => refill.from),
+    ].filter(Boolean));
+    return Object.values(printer.printSlotSpools || {})
+        .filter(candidate => named.has(candidate.amsId) && !live.some(c => c.amsId === candidate.amsId));
+}
+
+/**
  * The sentence a summary row carries when its filament was split at a refill.
  *
  * @param {object} info - one entry of a consumption map, after splitAtRefills()
@@ -1213,8 +1243,10 @@ function rememberPrintSlotSpools(printer) {
 export function refillNote(info) {
     const r = info.refill;
     if (!r) return null;
+    // The layer the switch was reported in is booked on the new slot, see
+    // splitAtRefills(), so the old one is named up to the layer before it
     return r.before
-        ? `Printed from ${r.from} up to layer ${r.layer}, where the AMS ran out and switched to ${r.to}.`
+        ? `Printed from ${r.from} through layer ${r.layer - 1}. The AMS ran out during layer ${r.layer} and switched to ${r.to}.`
         : `Printed from ${r.to} from layer ${r.layer} on, after the AMS switched over from ${r.from}.`;
 }
 
@@ -1276,11 +1308,7 @@ async function bookConsumption(printer, consumption, state) {
         .filter(uiSpool => uiSpool.connectedViaMapping || uiSpool.connectedViaTag)
         .map(consumptionCandidate)
         .filter(candidate => candidate.id);
-    // The slot a refill moved away from is empty by now, so its spool is not
-    // in the AMS any more. It is the one that printed the layers before.
-    for (const refill of printer.refills || []) {
-        if (refill.spool && !candidates.some(c => c.amsId === refill.from)) candidates.push(refill.spool);
-    }
+    candidates.push(...rememberedSlotCandidates(printer, candidates));
 
     // The slots a booking could possibly land on, and why each one qualified.
     // A filament that goes unbooked is usually a slot that never got into this

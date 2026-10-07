@@ -1353,6 +1353,99 @@ export function calcPartialConsumption(sliceInfo, upToLayer) {
     return roundEntries(result);
 }
 
+/**
+ * The filaments a print moved to another slot while it was printing, from two
+ * consecutive `print.mapping` values, which is what an AMS refill looks like.
+ *
+ * When a spool runs out and the AMS takes over from a slot of the same
+ * filament, the printer rewrites the mapping of the running job to the new
+ * slot. Traced on a P2S on 2026-10-07: `[65535, 65535, 2]` became
+ * `[65535, 65535, 3]` at layer 88 of 235, twenty seconds before the new slot
+ * was loaded, with the state RUNNING throughout. An X2D did the same in issue
+ * 225, from A3 to A1, where A1 held a different spool than A3 and the backup
+ * group was the printer's own decision. That is why nothing here compares the
+ * two slots' filaments.
+ *
+ * A change before the first layer is not a refill. The mapping settles while
+ * the job prepares, and one P2S report carried the slot the job was
+ * configured with before the user changed it.
+ *
+ * Neither `tray_now` nor `filam_bak` is used. The same P2S trace had
+ * `tray_now` at 0 for the 82 layers in which the tube emptied, while slot A1
+ * was never loaded, and the backup group of A3 and A4 vanished from
+ * `filam_bak` the moment A3 ran out.
+ *
+ * @param {(string|null)[]|null} previous - the slots before, as `decodePrintMapping()` gives them
+ * @param {(string|null)[]|null} reported - the slots now
+ * @param {number} layerNum - `layer_num` as the printer reports it, 1 for the first layer
+ * @returns {{index: number, from: string, to: string}[]} one entry per filament that moved
+ */
+export function refillsBetween(previous, reported, layerNum) {
+    if (!previous || !reported || !(layerNum >= 1)) return [];
+    const moved = [];
+    for (let index = 0; index < reported.length; index++) {
+        const from = previous[index];
+        const to = reported[index];
+        if (from && to && from !== to) moved.push({ index, from, to });
+    }
+    return moved;
+}
+
+/**
+ * Splits the filaments of a consumption map at the refills the print went
+ * through, so each spool is booked what came out of it.
+ *
+ * A refill at `layer_num` N means the old slot fed every layer before N: the
+ * filament still in the tube printed on after the AMS had found the spool
+ * empty, 82 layers of it on the P2S that settled this, and the printer moved
+ * the mapping only once the tube was empty. So the old slot gets the
+ * consumption through the last completed layer, by `calcPartialConsumption()`
+ * and therefore weighed from the G-code where it was read, and the slot the
+ * map already names gets the rest.
+ *
+ * The parts before a refill are added as entries of their own, named after
+ * the slot they came from and marked as reported by the printer, because they
+ * were. Each carries `refill` so the summary can say why one filament is
+ * booked on two spools. A filament that refilled twice is cut at both.
+ *
+ * @param {object} consumption - a map from `calcFullConsumption()` or the partial one, after `resolveSliceSlots()`
+ * @param {object} sliceInfo - what the consumption was calculated from
+ * @param {{index: number, from: string, to: string, layer: number}[]} refills - in the order they happened
+ * @returns {object} a new consumption map
+ */
+export function splitAtRefills(consumption, sliceInfo, refills) {
+    if (!refills?.length) return consumption;
+    const result = {};
+    for (const [key, entry] of Object.entries(consumption)) {
+        const own = refills.filter(r => r.index === entry.index);
+        if (!own.length || entry.grams <= 0) {
+            result[key] = entry;
+            continue;
+        }
+        let booked = 0;
+        for (const r of own) {
+            const through = calcPartialConsumption(sliceInfo, completedLayerIndex(r.layer))[key]?.grams ?? 0;
+            const part = Math.round((Math.min(entry.grams, through) - booked) * 100) / 100;
+            if (part <= 0) continue;
+            booked += part;
+            result[`${key}@${r.from}`] = {
+                ...entry,
+                amsId: r.from,
+                amsIdFromPrinter: true,
+                grams: part,
+                refill: { before: true, from: r.from, to: r.to, layer: r.layer },
+            };
+        }
+        const last = own[own.length - 1];
+        result[key] = {
+            ...entry,
+            grams: Math.round((entry.grams - booked) * 100) / 100,
+            refill: { before: false, from: last.from, to: last.to, layer: last.layer },
+        };
+    }
+    return result;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

@@ -13,6 +13,15 @@ rediscovering. Anything finished comes out of this file.
 Most of this has been run against the P2S by now, and the ticks say which.
 Ordered by how likely a user is to hit it.
 
+- [ ] **AMS refill split, booked end to end.** The switch itself was traced on
+  the P2S on 2026-10-07 (spool cut to about 8 g in A3, backup in A4, mapping
+  moved at layer 88 of 235) and `test/refill.test.js` replays it, but that run
+  booked before the split existed. Still to do: one refill with the split in
+  place against the mock Spoolman, one in a multi colour print, and a look at
+  an X1 or X2D trace. Two gaps by design for now: the refills of a print are
+  held in memory, so a restart of the service between the switch and the end
+  books everything on the backup slot again, and the dashboard's live figures
+  during the print still show the filament on the slot it runs from now.
 
 - [x] **Booking a print as it actually finishes.** Done on 2026-09-01 against
   the P2S, seven cancelled prints against a throwaway Spoolman. `useSpoolWeight()`

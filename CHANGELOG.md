@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------------------------
 Unreleased
    - New Features:
+      - A print that runs a spool empty and carries on from the AMS backup slot (auto refill) books each spool what came out of it. Until now the whole print went onto the backup spool, because the printer reports the backup slot as the one the print runs from once it has switched. The spool that ran out now gets the layers up to the switch and the backup spool the rest, weighed from the G-code like a cancelled print, and the print report says where the filament was split (issue #225)
       - A cancelled or failed print books what its layers really used. The service reads the G-code in the sliced file and weighs every layer, where it used to give each layer the same share. A cube cancelled after 8 of its 11 layers booked 1.41 g before and 1.12 g now, because its middle layers are sparse infill. A filament whose G-code does not add up to what the slicer says keeps the even share. A finished print books exactly what it did before
 
 -----------------------------------------------------------------------------------------------

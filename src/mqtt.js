@@ -19,7 +19,7 @@ import {
     setSpoolArchived,
     logSpoolmanFailure,
 } from "./spoolman.js";
-import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
+import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { getMapping, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
 import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile } from "./printstate.js";
@@ -712,6 +712,8 @@ export async function handlePrintStateChange(printer, print) {
         printer.lastSliceFetch    = null;
         printer.sliceFetchInFlight = null;
         printer.currentMapping    = null;
+        printer.refills           = [];
+        printer.printSlotSpools   = {};
         printer.consumptionBooked = false;
         printer.sliceFetchDone    = false;
 
@@ -867,12 +869,20 @@ export async function handlePrintStateChange(printer, print) {
     // never on a terminal report, which may already describe the next job.
     // Measured on a P2S: the value settles a moment after the print starts, and
     // one report carried the slot the job was configured with before the user
-    // changed it. Reading only the first would have booked onto that one. The
-    // printer cannot move a filament to another slot mid print, so the last
-    // value before the terminal state is the one that ran.
+    // changed it. Reading only the first would have booked onto that one. A
+    // change once the first layer is printing is an AMS refill, see
+    // refillsBetween(): the last value names the slot the print finished
+    // from, and the refill remembers the one before it.
     if (ACTIVE_STATES.has(newState)) {
+        rememberPrintSlotSpools(printer);
         const reported = decodePrintMapping(print.mapping);
         if (reported && JSON.stringify(reported) !== JSON.stringify(printer.currentMapping)) {
+            for (const refill of refillsBetween(printer.currentMapping, reported, layerNum)) {
+                const spool = printer.printSlotSpools?.[refill.from] ?? null;
+                (printer.refills ||= []).push({ ...refill, layer: layerNum, spool });
+                console.log(printer.name, printer.logFilePath,
+                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill: the layers before go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
+            }
             printer.currentMapping = reported;
             console.log(printer.name, printer.logFilePath, `[Print] The printer reports its slots as ${JSON.stringify(reported)}`);
         }
@@ -1175,6 +1185,40 @@ async function archiveWhenEmpty(printer, spool) {
 }
 
 /**
+ * Remembers which spool sits in each slot while a print runs, for a refill to
+ * book the layers before it on.
+ *
+ * By the time the printer moves a filament to its backup slot, the slot it
+ * ran out of reports empty: on the P2S trace of 2026-10-07 from layer 5,
+ * while the tube went on feeding until layer 88. The AMS no longer says which
+ * spool that was, so the last one seen there during the print is kept. Only a
+ * slot with a bookable spool overwrites its entry, an emptied one leaves it.
+ *
+ * @param {object} printer - the runtime printer
+ */
+function rememberPrintSlotSpools(printer) {
+    for (const uiSpool of printer.spoolData || []) {
+        if (!uiSpool.connectedViaMapping && !uiSpool.connectedViaTag) continue;
+        const candidate = consumptionCandidate(uiSpool);
+        if (candidate.id) (printer.printSlotSpools ||= {})[candidate.amsId] = candidate;
+    }
+}
+
+/**
+ * The sentence a summary row carries when its filament was split at a refill.
+ *
+ * @param {object} info - one entry of a consumption map, after splitAtRefills()
+ * @returns {string|null}
+ */
+export function refillNote(info) {
+    const r = info.refill;
+    if (!r) return null;
+    return r.before
+        ? `Printed from ${r.from} up to layer ${r.layer}, where the AMS ran out and switched to ${r.to}.`
+        : `Printed from ${r.to} from layer ${r.layer} on, after the AMS switched over from ${r.from}.`;
+}
+
+/**
  * Books the consumed grams in Spoolman for each filament of a finished print.
  *
  * A slot is only booked when we actually know which physical spool sits in it:
@@ -1219,6 +1263,7 @@ async function bookConsumption(printer, consumption, state) {
         : `[Print] Nobody named the slots, estimating from the slicer's list order: ${JSON.stringify(slots)}`);
 
     resolveSliceSlots(consumption, slots, { reportedByPrinter: !!reported });
+    consumption = splitAtRefills(consumption, printer.currentSliceInfo, printer.refills);
 
     // Logged from here rather than from the caller, which ran before the slots
     // were named and therefore printed every `amsId` as null, which is the one
@@ -1231,6 +1276,11 @@ async function bookConsumption(printer, consumption, state) {
         .filter(uiSpool => uiSpool.connectedViaMapping || uiSpool.connectedViaTag)
         .map(consumptionCandidate)
         .filter(candidate => candidate.id);
+    // The slot a refill moved away from is empty by now, so its spool is not
+    // in the AMS any more. It is the one that printed the layers before.
+    for (const refill of printer.refills || []) {
+        if (refill.spool && !candidates.some(c => c.amsId === refill.from)) candidates.push(refill.spool);
+    }
 
     // The slots a booking could possibly land on, and why each one qualified.
     // A filament that goes unbooked is usually a slot that never got into this
@@ -1303,7 +1353,7 @@ async function bookConsumption(printer, consumption, state) {
             const booked = await useSpoolWeight(spoolId, grams, lastUsed);
             console.log(printer.name, printer.logFilePath, `[Print] Booked ${grams}g for spool ${spoolId} (${matches[0].amsId}, ${idx} ${type} ${color}${matches[0].mapped ? ", manually assigned" : ""})`);
             rows.push({
-                ...summaryRow(printer, info, ambiguous ? "ambiguous" : "booked", ambiguous),
+                ...summaryRow(printer, info, ambiguous ? "ambiguous" : "booked", ambiguous ?? refillNote(info)),
                 spoolId,
                 // The three fields the dashboard names a filament by. Taken
                 // from the record the booking wrote, so the summary keeps

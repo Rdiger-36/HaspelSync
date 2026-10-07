@@ -21,10 +21,10 @@ Ordered by how likely a user is to hit it.
   the A3 spool remembered from before it ran out and 0.85 g on A4, both
   exactly what the G-code weighs, and the report carried both rows with their
   refill note. Still to do: one in a multi colour print, and a look at an X1
-  or X2D trace. Two gaps by design for now: the refills of a print are
-  held in memory, so a restart of the service between the switch and the end
-  books everything on the backup slot again, and the dashboard's live figures
-  during the print still show the filament on the slot it runs from now.
+  or X2D trace. One gap by design for now: the refills of a print and the
+  spools remembered for its slots are held in memory, so a restart of the
+  service between a spool running out and the end of the print books
+  everything on the backup slot again.
 
 - [x] **Booking a print as it actually finishes.** Done on 2026-09-01 against
   the P2S, seven cancelled prints against a throwaway Spoolman. `useSpoolWeight()`

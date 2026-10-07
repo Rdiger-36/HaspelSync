@@ -319,6 +319,12 @@ const schemas = {
         matchedAmsId: t.nullable(t.string("The slot the consumption will be booked from, decided by the service. Differs from `amsId` where the printer remapped the job.")),
         amsIdFromPrinter: t.boolean("Whether the slot came from the printer's own report rather than from the list order."),
         grams: t.number("The grams of this filament the print needs, or has consumed so far."),
+        refill: t.object({
+            before: t.boolean("Whether this is the part printed before the switch, from `from`, or the part after it, from `to`."),
+            from: t.string("The slot that ran out."),
+            to: t.string("The slot the AMS switched to."),
+            layer: t.integer("The layer the printer reported the switch in."),
+        }, { description: "Present when the filament was split at an AMS refill. The filament then has two entries, the one before the switch keyed with `@` and the slot." }),
     }, {
         additional: true,
         description: "One sliced filament of the print, keyed by its position in the slicer's filament list. Carries the profile and the colours next to the fields listed here.",
@@ -344,6 +350,14 @@ const schemas = {
         loadedSpools: t.array(t.ref("ClientSpool"), "The same list as `GET /api/spools/{printerId}`."),
         fullConsumption: t.nullable(t.object({}, { additional: t.ref("Consumption"), description: "What the whole print needs, per sliced filament." })),
         consumption: t.nullable(t.object({}, { additional: t.ref("Consumption"), description: "What has been consumed at the current layer, or the whole amount once the print finished." })),
+        emptiedSlots: t.array(t.object({
+            amsId: t.string("The slot that ran empty."),
+            spool: t.object({}, { additional: true, description: "The Spoolman spool it held when it was last seen loaded: `id`, and where known `name`, `vendor`, `material`, `colorHex`, `multiColorHexes`, `remainingWeight` and `initialWeight`." }),
+            refill: t.nullable(t.object({
+                to: t.string("The slot the AMS switched to."),
+                layer: t.integer("The layer the printer reported the switch in."),
+            }, { description: "Set when the AMS took over from a backup slot. Null while the filament left in the tube is still printing." })),
+        }), "The slots the running print was taking filament from that the AMS reports empty now. Their consumption is still booked on the spool they held, and the consumption maps name them in `matchedAmsId`. Empty outside a print."),
         consumptionBooked: t.boolean("Whether the consumption of the last print has been written to Spoolman."),
         lastPrintSummary: t.nullable(t.object({}, { additional: true, description: "The closing report of the last print: what was booked where, and what could not be. `printError` is the English line of the log, `printErrorDetails` the same as parts, `{ kind, code, texts }` with the catalogue's sentence per language, for a client that words it in its own." })),
         printResetAt: t.nullable(t.number("When the result card clears itself, epoch milliseconds. Null while no countdown runs.")),

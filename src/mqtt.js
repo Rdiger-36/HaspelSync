@@ -1200,7 +1200,9 @@ function rememberPrintSlotSpools(printer) {
     for (const uiSpool of printer.spoolData || []) {
         if (!uiSpool.connectedViaMapping && !uiSpool.connectedViaTag) continue;
         const candidate = consumptionCandidate(uiSpool);
-        if (candidate.id) (printer.printSlotSpools ||= {})[candidate.amsId] = candidate;
+        // The Spoolman record goes along for the dashboard, which names the
+        // spool of an emptied slot from it, see emptiedPrintSlots()
+        if (candidate.id) (printer.printSlotSpools ||= {})[candidate.amsId] = { ...candidate, spool: uiSpool.existingSpool };
     }
 }
 
@@ -1232,6 +1234,39 @@ export function rememberedSlotCandidates(printer, live) {
     ].filter(Boolean));
     return Object.values(printer.printSlotSpools || {})
         .filter(candidate => named.has(candidate.amsId) && !live.some(c => c.amsId === candidate.amsId));
+}
+
+/**
+ * The slots of the running print that ran empty while it went on, with the
+ * spool each held, for the dashboard.
+ *
+ * Exactly the slots `rememberedSlotCandidates()` adds, so the dashboard warns
+ * about the same slots the booking reaches past the AMS for. The refill a
+ * slot was left by, when there was one, says where the print went on from.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {object[]} live - the candidates from the slots as the AMS reports them now
+ * @returns {{amsId: string, spool: object|null, refill: {to: string, layer: number}|null}[]}
+ */
+export function emptiedPrintSlots(printer, live) {
+    return rememberedSlotCandidates(printer, live).map(candidate => {
+        const refill = (printer.refills || []).find(r => r.from === candidate.amsId);
+        const sp = candidate.spool;
+        return {
+            amsId: candidate.amsId,
+            spool: sp ? {
+                id: sp.id,
+                name: sp.filament?.name ?? null,
+                vendor: sp.filament?.vendor?.name ?? null,
+                material: sp.filament?.material ?? null,
+                colorHex: sp.filament?.color_hex ?? null,
+                multiColorHexes: sp.filament?.multi_color_hexes ?? null,
+                remainingWeight: sp.remaining_weight ?? null,
+                initialWeight: sp.initial_weight ?? null,
+            } : { id: candidate.id },
+            refill: refill ? { to: refill.to, layer: refill.layer } : null,
+        };
+    });
 }
 
 /**
@@ -1487,6 +1522,9 @@ function summaryRow(printer, info, status, note = null) {
         grams: info.grams ?? 0,
         status,
         note,
+        // Set when the filament was split at an AMS refill, so the dialog can
+        // mark the row, see splitAtRefills() in gcode.js
+        refill: info.refill ?? null,
         spoolId: null,
         // Null where neither the booking nor a printer named slot could say
         // what the filament is. The dialog then falls back to what the sliced

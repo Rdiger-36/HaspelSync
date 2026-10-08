@@ -813,6 +813,20 @@ export async function handlePrintStateChange(printer, print) {
 
     const errorNow = printer.staleErrorText ? null : reported;
 
+    // A complaint the printer clears again while the print goes on was answered
+    // at the printer and did not end anything: the prompts of a filament swap
+    // on the external holder (07FFC030 "used up", 07FFC006 "feed the tube",
+    // 07FF8007 "check the nozzle", P2S on 2026-10-08, issue #233) came and went
+    // three times in a print that finished, and the summary of that FINISH
+    // still named the last of them. Only while the state is active: the code a
+    // stopped print reports one report after FAILED is cleared the report after
+    // that, and that one must stay, see the collection above.
+    if (!reported && namesError && !printer.staleErrorText && ACTIVE_STATES.has(newState) && printer.lastPrintError) {
+        debug("print", printer.name, printer.logFilePath, `[Print] The printer cleared "${printer.lastPrintError}" and the print goes on, so it is not this print's result`);
+        printer.lastPrintError = null;
+        printer.lastPrintErrorDetails = null;
+    }
+
     if (errorNow) {
         printer.lastPrintError = errorNow;
         printer.lastPrintErrorDetails = printErrorDetails(print);

@@ -349,6 +349,40 @@ test("a real failure inside the print is still collected once the old one cleare
     assert.equal(target.lastPrintSummary.printError, "Fail reason 50348044: The task was canceled.");
 });
 
+test("a prompt the printer clears while the print goes on is not the print's result", async () => {
+    const { handlePrintStateChange } = await import("../src/mqtt.js");
+
+    // A spool swapped on the external holder, as a P2S reported it on
+    // 2026-10-08 (issue #233): three prompts, each cleared, then a FINISH.
+    const target = {
+        name: "Test Printer",
+        logFilePath: "/dev/null",
+        currentGcodeState: "RUNNING",
+        currentJobName: "Würfel",
+        currentLayerNum: 9,
+        currentSliceInfo: null,
+        sliceFetchDone: true,
+        consumptionBooked: false,
+        printStartedAt: Date.now() - 60_000,
+        lastPrintSummary: null,
+        lastPrintError: null,
+        staleErrorText: null,
+    };
+
+    for (const code of [134201392, 134201350]) {
+        await handlePrintStateChange(target, { gcode_state: "RUNNING", print_error: code, fail_reason: "0" });
+        await handlePrintStateChange(target, { gcode_state: "RUNNING", print_error: 0, fail_reason: "0" });
+    }
+    await handlePrintStateChange(target, { gcode_state: "PAUSE", print_error: 134184967, fail_reason: "0" });
+    await handlePrintStateChange(target, { gcode_state: "PAUSE", print_error: 0, fail_reason: "0" });
+    await handlePrintStateChange(target, { gcode_state: "RUNNING", print_error: 0, fail_reason: "0" });
+    await handlePrintStateChange(target, { gcode_state: "FINISH", print_error: 0, fail_reason: "0" });
+
+    assert.equal(target.lastPrintSummary.state, "FINISH");
+    assert.equal(target.lastPrintSummary.printError, null);
+    assert.equal(target.lastPrintSummary.printErrorDetails, null);
+});
+
 // ---------------------------------------------------------------------------
 // What the card shows while a print is running: when it started, when it is
 // expected to end, and what the printer is busy with.

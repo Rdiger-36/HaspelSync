@@ -1,4 +1,11 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - New Features:
+      - A print sliced with "Use Multicolor with External" books each of its filaments on the spool it really came from. Bambu Studio sends every filament to the external holder and the printer stops at each change for the spool to be swapped by hand, but it goes on reporting the first spool for the whole print, so until now every filament was booked on the spool assigned to the holder. The dashboard now lists the filaments of such a print under the External row, each with a "Choose spool" button, and books each one on the spool chosen for it. A filament nobody chose a spool for by the end of the print waits instead of being booked on the wrong spool: the print card says how many do, the report marks them, and choosing a spool there books it straight away (issue #233)
+   - Fixes:
+      - The report of a print no longer names a prompt the printer showed and cleared again while the print went on. A spool swapped by hand on the external holder brings up "check the nozzle" and similar prompts at every change, and the report of a print that finished cleanly said the last of them was what happened to it
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.4
    - New Features:
       - A print that runs a spool empty and carries on from the AMS backup slot (auto refill) books each spool what came out of it. Until now the whole print went onto the backup spool, because the printer reports the backup slot as the one the print runs from once it has switched. The spool that ran out now gets the layers up to the switch and the backup spool the rest, weighed from the G-code like a cancelled print, and the print report marks the split rows with a ⚠ and says where the filament was split (issue #225). A restart of the service during such a print keeps it: the slots, the switch and the spool that ran out are kept in printers/printstate.json, and a switch that happened while the service was down is split at the first layer seen afterwards

@@ -275,6 +275,15 @@ h1 {
 .gc-muted    { opacity: 0.6; }
 .gc-required { color: var(--bad); }
 .gc-error { margin: 10px 0 0; }
+/* A filament swapped onto the external holder by hand, under the holder's row:
+   indented and smaller, so the holder stays the row the eye lands on */
+.spool-table tr.gc-subrow td { font-size: 0.92em; }
+/* Indented only while the table is a table: stacked into cards on a phone, the
+   label in front of each cell would move out of line with the other cards */
+@media (min-width: 761px) {
+  .spool-table tr.gc-subrow td:first-child { padding-left: 22px; }
+}
+.gc-subrow-mark { opacity: 0.5; }
 /* The line under the card head that says the sliced file was not found:
    grey while attempts are left, red (gc-required) after the last one */
 .gc-card-lookup { margin: 10px 0 0; text-align: center; }

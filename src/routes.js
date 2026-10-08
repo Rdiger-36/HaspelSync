@@ -39,7 +39,7 @@ import {
 } from "./spoolman.js";
 import { calcFullConsumption, calcPartialConsumption, completedLayerIndex, testFtpsConnection, resolveSliceSlots, orderedAmsSlots, printStageName, isPreparingStage, splitAtRefills, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { consumptionCandidate, matchConsumption } from "./ams.js";
-import { setupMqtt, closeMqtt, broadcastSlotUpdate, broadcastSSE, testMqttConnection, resetOfflineBackoff, ACTIVE_STATES, printResultCleared, loadSliceInfo, ensureSliceInfo, sliceFetchFailure, runningPrint, rememberedSlotCandidates, emptiedPrintSlots } from "./mqtt.js";
+import { setupMqtt, closeMqtt, broadcastSlotUpdate, broadcastSSE, testMqttConnection, resetOfflineBackoff, ACTIVE_STATES, printResultCleared, loadSliceInfo, ensureSliceInfo, sliceFetchFailure, runningPrint, rememberedSlotCandidates, emptiedPrintSlots, markHolderSwaps, holderFilamentView, chooseFilamentSpool, clearFilamentSpool, bookFilamentLater } from "./mqtt.js";
 import { getMappings, setMapping, clearMapping, clearPrinterMappings } from "./mappings.js";
 import {
     claimSlotLocation,
@@ -715,6 +715,7 @@ export function registerRoutes(app, printers) {
         let fullConsumption = null;
         let consumption     = null;
         let emptiedSlots    = [];
+        let holderFilaments = [];
         if (sliceInfo) {
             const TERMINAL = new Set(["FINISH", "FAILED", "CANCEL"]);
             // The same resolution bookConsumption makes, so the dashboard reads
@@ -726,7 +727,11 @@ export function registerRoutes(app, printers) {
             // The refills and the remembered spools belong to the running
             // print, not to a file asked for by name
             const running = sliceInfo === printer.currentSliceInfo ? printer : null;
-            const split = cons => splitAtRefills(resolveSliceSlots(cons, slots, from), sliceInfo, running?.refills);
+            const split = cons => {
+                const resolved = splitAtRefills(resolveSliceSlots(cons, slots, from), sliceInfo, running?.refills);
+                markHolderSwaps(resolved);
+                return resolved;
+            };
 
             fullConsumption = nameMatchedSlots(split(calcFullConsumption(sliceInfo)), loadedSpools, running);
             if (state === "FINISH") {
@@ -739,6 +744,7 @@ export function registerRoutes(app, printers) {
                 );
             }
             if (running) {
+                holderFilaments = holderFilamentView(printer, fullConsumption, consumption);
                 emptiedSlots = emptiedPrintSlots(printer, loadedSpools
                     .filter(spool => spool.slotState !== "Empty")
                     .map(consumptionCandidate));
@@ -780,6 +786,10 @@ export function registerRoutes(app, printers) {
             fullConsumption,
             consumption,
             emptiedSlots,
+            // The filaments that take turns on an external holder swapped by
+            // hand, each with the spool named for it. Every other filament is
+            // read off its slot; these only off this list.
+            holderFilaments,
             consumptionBooked: cleared ? false : (printer.consumptionBooked ?? false),
             // The closing report of the last print, and when the card clears
             // itself. Both survive the clearing: the summary is what the
@@ -822,6 +832,56 @@ export function registerRoutes(app, printers) {
         // of waiting out its update interval.
         broadcastSSE({ type: "print_result_cleared", printer: printer.id });
         res.json({ ok: true });
+    });
+
+    // Names the spool one filament comes from, for a print that swaps spools
+    // on the external holder by hand. While the print runs the choice is kept
+    // for the booking at its end; once it has ended, a filament still waiting
+    // for a spool is booked on the chosen one straight away.
+    app.put("/api/print/:printerId/filament/:index", async (req, res) => {
+        if (rejectInLegacyMode(res)) return;
+        const printer = resolvePrinter(req.params.printerId, printers, res);
+        if (!printer) return;
+
+        const index = filamentIndex(req.params.index);
+        if (index == null) return res.status(400).json({ ok: false, error: "The filament index must be a whole number from 0", code: "filamentIndexInvalid" });
+        const spoolId = positiveInteger(req.body?.spoolId);
+        if (!spoolId) return res.status(400).json({ ok: false, error: "spoolId must be a positive integer", code: "spoolIdInvalid" });
+
+        let spool;
+        try {
+            spool = (await getSpoolmanSpools()).find(sp => sp.id === spoolId);
+        } catch (err) {
+            return res.status(502).json({ ok: false, error: `Spoolman could not be asked for the spool: ${err.message}` });
+        }
+        if (!spool) {
+            return res.status(404).json({ ok: false, error: `Spool ${spoolId} not found in Spoolman`, code: "spoolNotFound", params: { id: spoolId } });
+        }
+
+        const result = ACTIVE_STATES.has(printer.currentGcodeState)
+            ? chooseFilamentSpool(printer, index, spool)
+            : await bookFilamentLater(printer, index, spool);
+        if (!result.ok) {
+            const status = result.code === "filamentBookingFailed" ? 502 : 409;
+            return res.status(status).json({ ok: false, error: result.error, code: result.code, params: { filament: index + 1, error: result.error } });
+        }
+        res.json({ ok: true, row: result.row ?? null });
+    });
+
+    // Takes back the spool named for one filament, while the print still runs.
+    // A filament booked after the print is booked; Spoolman is where that is
+    // corrected.
+    app.delete("/api/print/:printerId/filament/:index", (req, res) => {
+        if (rejectInLegacyMode(res)) return;
+        const printer = resolvePrinter(req.params.printerId, printers, res);
+        if (!printer) return;
+
+        const index = filamentIndex(req.params.index);
+        if (index == null) return res.status(400).json({ ok: false, error: "The filament index must be a whole number from 0", code: "filamentIndexInvalid" });
+        if (!ACTIVE_STATES.has(printer.currentGcodeState)) {
+            return res.status(409).json({ ok: false, error: "The print has ended and its filaments are booked, so the spool can only be corrected in Spoolman", code: "filamentAlreadyBooked", params: { filament: index + 1 } });
+        }
+        res.json(clearFilamentSpool(printer, index));
     });
 
     // ---------------------------------------------------------------------
@@ -1597,6 +1657,11 @@ function disconnectPrinter(printer) {
 function positiveInteger(value) {
     const n = Number(value);
     return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** A filament's index in the sliced file from a path segment, counting from 0, or null. */
+function filamentIndex(value) {
+    return /^\d{1,3}$/.test(String(value)) ? Number(value) : null;
 }
 
 function numberOrNull(value) {

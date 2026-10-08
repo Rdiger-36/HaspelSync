@@ -123,6 +123,15 @@ const amsId = {
     schema: t.string(null, { example: "A1" }),
 };
 
+/** Path parameter: a filament's position in the sliced file. */
+const filamentIndex = {
+    name: "index",
+    in: "path",
+    required: true,
+    description: "The filament's position in the sliced file, counting from 0, as `index` in `holderFilaments` of `GET /api/print/{printerId}`.",
+    schema: t.integer(null, { minimum: 0, example: 1 }),
+};
+
 /** Path parameter: a Spoolman spool id. */
 const spoolId = {
     name: "id",
@@ -358,6 +367,18 @@ const schemas = {
                 layer: t.integer("The layer the printer reported the switch in."),
             }, { description: "Set when the AMS took over from a backup slot. Null while the filament left in the tube is still printing." })),
         }), "The slots the running print was taking filament from that the AMS reports empty now. Their consumption is still booked on the spool they held, and the consumption maps name them in `matchedAmsId`. Empty outside a print."),
+        holderFilaments: t.array(t.object({
+            index: t.integer("The filament's position in the sliced file, counting from 0."),
+            amsId: t.string("The holder, `External` or `External-2`."),
+            type: t.nullable(t.string()),
+            trayInfoIdx: t.nullable(t.string()),
+            color: t.nullable(t.string("The colour the sliced file gives the filament.")),
+            colors: t.nullable(t.array(t.string())),
+            grams: t.number("What the whole print needs of it."),
+            usedGrams: t.nullable(t.number("What has been printed of it so far, or in all once the print ended.")),
+            spool: t.nullable(t.object({}, { additional: true, description: "The spool named for it: `id`, and where known `name`, `vendor`, `material`, `colorHex`, `multiColorHexes`, `remainingWeight` and `initialWeight`." })),
+            status: t.nullable(t.string("Once the print has ended, what the booking did with it, as in `lastPrintSummary`: `pending` while it waits for a spool. Null while the print runs.")),
+        }), "The filaments of a print that take turns on one external holder swapped by hand (Bambu Studio's \"Use Multicolor with External\"). The printer does not say which spool was loaded for which, so each is booked on the spool named for it with `PUT /api/print/{printerId}/filament/{index}` and on nothing else. Empty for any other print."),
         consumptionBooked: t.boolean("Whether the consumption of the last print has been written to Spoolman."),
         lastPrintSummary: t.nullable(t.object({}, { additional: true, description: "The closing report of the last print: what was booked where, and what could not be. `printError` is the English line of the log, `printErrorDetails` the same as parts, `{ kind, code, texts }` with the catalogue's sentence per language, for a client that words it in its own." })),
         printResetAt: t.nullable(t.number("When the result card clears itself, epoch milliseconds. Null while no countdown runs.")),
@@ -506,7 +527,7 @@ const schemas = {
 
     SseEvent: t.object({
         type: t.string("What happened.", {
-            enum: ["slot_update", "status", "refresh", "ams_env", "monitoring_update", "printers_update", "print_result_cleared", "settings_update"],
+            enum: ["slot_update", "status", "refresh", "ams_env", "monitoring_update", "printers_update", "print_result_cleared", "print_filaments", "settings_update"],
         }),
         printer: t.string("The serial number of the printer the event is about, where it is about one."),
     }, {
@@ -768,6 +789,34 @@ export function buildOpenApiDocument() {
             200: json("Cleared", t.ref("Ok")),
             404: PRINTER_NOT_FOUND,
             409: failure("The printer is still printing"),
+        },
+    });
+
+    op("put", "/api/print/{printerId}/filament/{index}", {
+        tags: ["Status"],
+        summary: "Name the spool a filament swapped onto the external holder came from",
+        description: "For a print that sends several filaments to the external holder and stops at each change for the spool to be swapped by hand. While the print runs, the spool is kept and the filament is booked on it when the print ends. Once it has ended, a filament still waiting for a spool (`pending` in `holderFilaments` and in the summary) is booked on it straight away. Not available in legacy mode.",
+        parameters: [printerId, filamentIndex],
+        requestBody: body(t.object({ spoolId: t.integer(null, { minimum: 1 }) }, { required: ["spoolId"] }), { example: { spoolId: 12 } }),
+        responses: {
+            200: json("Named, or booked when the print has ended", t.object({ ok: t.boolean(), row: t.nullable(t.object({}, { additional: true, description: "The summary row of the booking made, when one was made." })) })),
+            400: failure("The index or `spoolId` is not valid"),
+            404: failure("No such printer or Spoolman spool"),
+            409: failure("The filament does not run from a holder swapped by hand, is not waiting for a spool, or legacy mode is on"),
+            502: failure("Spoolman could not be asked, or refused the booking"),
+        },
+    });
+
+    op("delete", "/api/print/{printerId}/filament/{index}", {
+        tags: ["Status"],
+        summary: "Take back the spool named for a filament",
+        description: "Only while the print runs. Once it has ended the filament is booked, and Spoolman is where that is corrected. Not available in legacy mode.",
+        parameters: [printerId, filamentIndex],
+        responses: {
+            200: json("Taken back, or there was nothing to take back", t.ref("Ok")),
+            400: failure("The index is not valid"),
+            404: PRINTER_NOT_FOUND,
+            409: failure("The print has ended, or legacy mode is on"),
         },
     });
 

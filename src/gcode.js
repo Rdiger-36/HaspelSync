@@ -888,9 +888,11 @@ export function resolveSliceSlots(consumption, amsIds, { reportedByPrinter = fal
  * Read off an X1E where the echo said [0, 1, 3] and `print.mapping` said the
  * same for the whole print, and off a P1S where the echo said [0, 3, 2] for a
  * plate whose list order was blue, orange, red while the slots were blue, red,
- * orange: the printer ran 0, 3, 2 in that order. How the external holder is
- * encoded here has not been seen, so a unit outside the ranges above yields
- * null, which the caller treats as unknown rather than booking onto "Z".
+ * orange: the printer ran 0, 3, 2 in that order. The external holder came as
+ * `{ams_id: 255, slot_id: 0}` in `ams_mapping2` and -1 in `ams_mapping` on a
+ * P2S printing "Use Multicolor with External" (issue #233), so the first field
+ * names it and the second does not. Any other unit outside the ranges above
+ * yields null, which the caller treats as unknown rather than booking onto "Z".
  *
  * @param {object} command - the `print` block of the echoed `project_file` command
  * @returns {string[]|null} slot labels by filament index, null when the command carries none

@@ -21,6 +21,7 @@ The link is dropped automatically as soon as a different filament is detected in
 Two things follow from booking per print rather than per report:
 
 - **A slot needs a link before its consumption can be booked**, either the tag of a Bambu Lab spool or a manual assignment. A filament the print uses from a slot that has neither is named in the log and skipped, so it is visible which spool is missing its link rather than silently going untracked.
+- **Filaments swapped onto the external holder by hand are booked per filament.** A print sliced with "Use Multicolor with External" sends every filament to the holder, and the printer reports neither the swaps nor which spool was loaded. Each of those filaments is booked on the spool named for it in the Web UI, during the print or after it, and never on the spool assigned to the holder, see [the dashboard](web-ui.md).
 - **Nothing is written to Spoolman while a print runs.** The whole amount is booked when the job reaches its final state, so a spool in Spoolman stands still during the print and then jumps. The Web UI shows the progress in the meantime, per spool in the columns "On spool / total", "Needed" and "After print".
 
 The download needs LAN access to the printer on port 990 (FTPS) with the printer's access code, the same code MQTT already uses. Without it the print is logged as running but nothing is booked.

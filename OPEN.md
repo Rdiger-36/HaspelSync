@@ -103,7 +103,11 @@ Ordered by how likely a user is to hit it.
     `project_file` command with `ams_mapping` and `ams_mapping2` on their report
     topic, seen on three P1S prints and the X1E, and the P2S sends that echo as
     well; #156 reads it, so those printers no longer depend on the list order.
-    Not seen yet: how the external holder is encoded in that echo.
+    The external holder in that echo was seen on a P2S on 2026-10-08 (issue
+    #233): `ams_mapping2` read `{ams_id: 255, slot_id: 0}` for every filament,
+    `ams_mapping` -1 and `use_ams` false, which `decodeStudioMapping()` turns
+    into `External`. Not seen yet: the same on a P1 or an A1, whose holder is
+    unit 254.
   - **What `group_id` in `slice_info.config` means.** In the H2C file the four
     filaments carried 0, 3, 2, 1, and ordering the right extruder's filaments by
     it reproduced their AMS order exactly. One file, so it is a lead and not a

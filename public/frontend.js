@@ -179,6 +179,10 @@ document.addEventListener("DOMContentLoaded", () => {
             // fight the column width sync for nothing.
             setAmsEnv(data.amsEnv);
             refreshAmsEnvCaptions();
+        } else if (data.type === 'print_filaments' && data.printer === printerId && !isDialogOpen()) {
+            // A spool was named for a filament swapped onto the external
+            // holder, here or in another tab
+            if (!legacyMode) scheduleGcodeRefresh();
         } else if (data.type === 'print_result_cleared' && data.printer === printerId) {
             // Somebody cleared the finished print, here or in another tab
             if (!legacyMode) scheduleGcodeRefresh();
@@ -934,7 +938,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const selectMode = (mode) => {
             for (const tab of tabs) tab.classList.toggle("sp-tab-active", tab.dataset.mode === mode);
-            if (mode === "assign") renderAssignPane(pane, actionButton, button, amsSpool, spools);
+            if (mode === "assign") renderAssignPane(pane, actionButton, button, amsSpool, spools, null);
             else renderCreatePane(pane, actionButton, button, amsSpool, lookups);
         };
         for (const tab of tabs) tab.addEventListener("click", () => selectMode(tab.dataset.mode));
@@ -949,7 +953,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // short enough to stay a suggestion.
     const ASSIGN_SUGGESTIONS = 6;
 
-    function renderAssignPane(pane, actionButton, button, amsSpool, spools) {
+    // `onPick` takes the chosen spool id instead of assigning it to the slot,
+    // for a picker that names a spool for something other than a slot.
+    function renderAssignPane(pane, actionButton, button, amsSpool, spools, onPick) {
         actionButton.textContent = t("dashboard.assign.assign");
         actionButton.disabled = true;
 
@@ -1087,8 +1093,78 @@ document.addEventListener("DOMContentLoaded", () => {
         actionButton.onclick = () => {
             if (selectedId == null) return;
             document.getElementById("info-dialog").close();
-            sendMapping(button, amsSpool, selectedId);
+            if (onPick) onPick(selectedId);
+            else sendMapping(button, amsSpool, selectedId);
         };
+    }
+
+    // ---------------------------------------------------------------------
+    // A spool per filament on a holder swapped by hand
+    //
+    // Bambu Studio's "Use Multicolor with External" runs several filaments from
+    // the external holder, and the printer reports the first spool for the
+    // whole print. The server books each of these filaments on the spool named
+    // for it here and on nothing else; see holderSwapIndices() in src/ams.js.
+    // ---------------------------------------------------------------------
+
+    // The slot shape the picker ranks spools against, built from what the
+    // sliced file says about the filament.
+    function filamentAsSlot(filament) {
+        const colors = filament.colors?.length ? filament.colors : [filament.color];
+        return {
+            tray_info_idx: filament.trayInfoIdx,
+            tray_type: filament.type,
+            tray_color: normColor(colors[0]),
+            cols: colors.filter(Boolean).map(normColor),
+        };
+    }
+
+    async function showFilamentSpoolDialog(button, filament) {
+        showDialog(button, `<p>${escapeHtml(t("dashboard.loadingSpoolman"))}</p>`, t("dashboard.assign.assign"), () => {});
+        const dialogContent = document.getElementById("dialog-content");
+        const actionButton  = document.getElementById("action-button");
+        actionButton.disabled = true;
+
+        let spools;
+        try {
+            spools = await fetchJson("./api/spoolman/spools");
+        } catch (err) {
+            dialogContent.innerHTML = `<p class="gc-bad">${escapeHtml(t("dashboard.loadSpoolmanFailed", { error: err.message }))}</p>`;
+            return;
+        }
+
+        const slot = filamentAsSlot(filament);
+        const swatch = swatchHtml(slotColors(slot).map(normColor));
+        dialogContent.innerHTML = `
+            <p style="margin-top:0">${escapeHtml(t("dashboard.holder.dialogIntro", {
+                filament: "{filament}",
+                slot: filament.amsId,
+            })).replace("{filament}", `${swatch}<strong>${escapeHtml(t("dashboard.holder.filament", { number: filament.index + 1 }))}</strong>`)}</p>
+            <p class="gc-muted" style="font-size:0.85em">${escapeHtml(t(filament.status === "pending" ? "dashboard.holder.dialogBookNow" : "dashboard.holder.dialogBookLater"))}</p>
+            <div id="sp-pane"></div>`;
+
+        const pane = dialogContent.querySelector("#sp-pane");
+        // The amsId keeps the picker from preselecting the spool assigned to
+        // the holder itself, which is one of the spools this print swaps
+        const pseudo = { amsId: `${filament.amsId}#${filament.index}`, slot };
+        renderAssignPane(pane, actionButton, button, pseudo, spools, spoolId => sendFilamentSpool(button, filament, spoolId));
+        actionButton.textContent = t(filament.status === "pending" ? "dashboard.holder.book" : "dashboard.assign.assign");
+    }
+
+    async function sendFilamentSpool(button, filament, spoolId) {
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = t("dashboard.sending");
+        try {
+            await sendJson(`./api/print/${encodeURIComponent(currentPrinterId)}/filament/${filament.index}`, "PUT", { spoolId });
+            showNotification(t(filament.status === "pending" ? "dashboard.holder.booked" : "dashboard.holder.named",
+                { number: filament.index + 1, id: spoolId }), "success");
+            await loadPrinterData(currentPrinterId);
+        } catch (err) {
+            showNotification(t("dashboard.error", { error: err.message }), "error");
+            button.textContent = originalText;
+            button.disabled = false;
+        }
     }
 
     // Keeps the first spelling of every entry and drops the later duplicates, so
@@ -2693,8 +2769,14 @@ document.addEventListener("DOMContentLoaded", () => {
             // A summary with a note and no rows at all is a print that had no
             // sliced file: nothing was booked because nothing could be read
             const noFile = !!summary?.note && !summary.rows?.length;
+            // Filaments swapped onto the holder by hand that still wait for a
+            // spool, which is something the user can do now rather than a
+            // result to read
+            const pending = rows.filter(row => row.status === "pending").length;
             // The note comes from the server and stays English
-            const label = noFile
+            const label = pending
+                ? { text: `⚠ ${t("dashboard.result.choosePending", { count: pending })}`, className: "gc-card-partly", title: t("dashboard.result.choosePendingTitle") }
+                : noFile
                 ? { text: `✖ ${t("dashboard.result.noSlicedFile")}`, className: "gc-card-unbooked", title: `${summary.note} ${t("dashboard.result.openReport")}` }
                 : nothingUsed
                     ? { text: t("dashboard.result.nothingToBook"), className: "gc-card-nothing", title: t("dashboard.result.nothingToBookTitle") }
@@ -2827,6 +2909,8 @@ document.addEventListener("DOMContentLoaded", () => {
         booked:    { label: "dashboard.summary.status.booked",    className: "gc-ok" },
         ambiguous: { label: "dashboard.summary.status.booked",    className: "gc-warn" },
         skipped:   { label: "dashboard.summary.status.notBooked", className: "gc-warn" },
+        pending:   { label: "dashboard.summary.status.pending",   className: "gc-warn" },
+        booking:   { label: "dashboard.summary.status.pending",   className: "gc-muted" },
         unused:    { label: "dashboard.summary.status.unused",    className: "" },
         failed:    { label: "dashboard.summary.status.failed",    className: "gc-bad" },
     };
@@ -2927,7 +3011,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const rows = summary.rows.map(row => {
                 const known = SUMMARY_STATUS[row.status];
                 const status = known ? { ...known, label: t(known.label) } : { label: row.status, className: "" };
-                const spool = row.spoolId ? `#${row.spoolId}` : "—";
+                // A filament swapped onto the holder by hand waits for its
+                // spool to be named, and is booked the moment it is
+                const spool = row.spoolId
+                    ? `#${row.spoolId}`
+                    : row.status === "pending"
+                        ? `<button type="button" class="btn btn-small" data-choose-filament="${row.index}">${escapeHtml(t("dashboard.holder.choose"))}</button>`
+                        : "—";
                 // The same square the slot tables draw, from the whole colour
                 // set when the slice named one. normColor takes both shapes
                 // these arrive in, "#F55A74" from the slice and "F55A74FF"
@@ -2967,6 +3057,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         content.innerHTML = html;
+        for (const choose of content.querySelectorAll("[data-choose-filament]")) {
+            const row = summary.rows.find(r => r.index === Number(choose.dataset.chooseFilament) && r.status === "pending");
+            choose.addEventListener("click", () => {
+                dialog.close();
+                showFilamentSpoolDialog(choose, {
+                    index: row.index, amsId: row.amsId, type: row.type, trayInfoIdx: row.trayInfoIdx,
+                    color: row.color, colors: row.colors, status: "pending",
+                });
+            });
+        }
         document.getElementById("print-summary-close").onclick = () => dialog.close();
         dialog.showModal();
         document.getElementById("print-summary-close").focus();
@@ -2994,7 +3094,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const bookedRemaining = Object.fromEntries((printData.lastPrintSummary?.rows || [])
             .filter(row => row.spoolId && row.remainingWeight != null)
             .map(row => [row.spoolId, row.remainingWeight]));
-        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, usedKnown, emptied, bookedRemaining };
+        // The filaments that take turns on a holder swapped by hand, under the
+        // holder they ran from. Their grams are on these rows, not on the slot's.
+        const holderFilaments = {};
+        for (const filament of printData.holderFilaments || []) (holderFilaments[filament.amsId] ||= []).push(filament);
+        const printing = ACTIVE_PRINT_STATES.includes(printData.gcodeState);
+        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, usedKnown, emptied, bookedRemaining, holderFilaments, printing };
 
         const columns = [
             [t("dashboard.table.spool"), "left"],
@@ -3018,8 +3123,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // Summed rather than picked: one slot can serve two filaments of a print,
     // and the booking writes both of their amounts onto its spool.
     function consumedGrams(cons, amsId) {
+        // A filament swapped onto the holder by hand has its own row and its
+        // own spool, see holderFilamentRow()
         return Object.values(cons)
-            .filter(e => e.matchedAmsId && e.matchedAmsId === amsId)
+            .filter(e => e.matchedAmsId && e.matchedAmsId === amsId && !e.holderSwap)
             .reduce((total, e) => total + (e.grams || 0), 0);
     }
 
@@ -3128,6 +3235,72 @@ document.addEventListener("DOMContentLoaded", () => {
         tdBtn.appendChild(createActionButton(amsSpool));
         tr.appendChild(tdBtn);
 
+        const filaments = ctx.holderFilaments?.[amsSpool.amsId];
+        if (!filaments?.length) return tr;
+        const rows = document.createDocumentFragment();
+        rows.appendChild(tr);
+        for (const filament of filaments) rows.appendChild(holderFilamentRow(filament, ctx));
+        return rows;
+    }
+
+    // One filament of a print that swaps spools on the holder by hand, under
+    // the holder's row: what it needs and the spool named for it.
+    function holderFilamentRow(filament, ctx) {
+        const tr = document.createElement("tr");
+        tr.className = "gc-subrow";
+        const sp = filament.spool;
+        const colors = (filament.colors?.length ? filament.colors : [filament.color]).map(normColor).filter(Boolean);
+        const label = `${swatchHtml(colors)}${escapeHtml(t("dashboard.holder.filament", { number: filament.index + 1 }))}${
+            filament.type ? ` <span class="gc-muted">${escapeHtml(filament.type)}</span>` : ""}`;
+
+        let spoolLine;
+        if (sp) {
+            const name = [sp.vendor, sp.name].filter(Boolean).join(" ") || sp.material || `#${sp.id}`;
+            spoolLine = `${swatchHtml(filamentColors({ color_hex: sp.colorHex, multi_color_hexes: sp.multiColorHexes }))}${escapeHtml(name)} · <a class="gc-link" href="${spoolmanBase()}/spool/show/${sp.id}" target="_blank">Spoolman #${sp.id}</a>`;
+        } else {
+            spoolLine = `<span class="gc-warn">⚠ ${escapeHtml(t(filament.status === "pending" ? "dashboard.holder.waiting" : "dashboard.holder.noSpool"))}</span>`;
+        }
+
+        // The booking has taken the grams off the spool already once it ran,
+        // so the weight is shown as it is and not reduced a second time
+        const done = filament.status != null && filament.status !== "pending";
+        const left = done && sp ? ctx.bookedRemaining?.[sp.id] : sp?.remainingWeight;
+        const onSpool = left != null ? Math.round(left * 100) / 100 : null;
+        const onSpoolCell = onSpool != null ? `${grams2(onSpool)}${sp.initialWeight ? ` / ${Math.round(sp.initialWeight)}g` : ""}` : "—";
+        const used = filament.usedGrams;
+        const neededCell = `${filament.grams}g${used != null && !done
+            ? `<br><span class="gc-muted" style="font-size:0.8em">${escapeHtml(t("dashboard.table.printedGrams", { grams: used }))}</span>`
+            : done ? `<br><span class="gc-muted" style="font-size:0.8em">${escapeHtml(t("dashboard.table.bookedGrams", { grams: used ?? filament.grams }))}</span>` : ""}`;
+        const afterPrintCell = onSpool == null
+            ? "—"
+            : done
+                ? `<span class="gc-muted" title="${escapeHtml(t("dashboard.table.alreadyBookedTitle"))}">${grams2(onSpool)}</span>`
+                : `<span class="${onSpool - filament.grams < 0 ? "gc-bad" : "gc-ok"}">${grams2(onSpool - filament.grams)}</span>`;
+
+        tr.innerHTML = `
+            <td data-label="${escapeHtml(t("dashboard.table.spool"))}" style="text-align:left">
+                <span class="gc-subrow-mark">↳</span> ${label}<br>
+                <span style="font-size:0.82em">${spoolLine}</span>
+            </td>
+            <td data-label="${escapeHtml(t("dashboard.table.onSpool"))}" style="text-align:right">${onSpoolCell}</td>
+            <td data-label="${escapeHtml(t("dashboard.table.needed"))}" style="text-align:right">${neededCell}</td>
+            <td data-label="${escapeHtml(t("dashboard.table.afterPrint"))}" style="text-align:right">${afterPrintCell}</td>
+        `;
+
+        const tdBtn = document.createElement("td");
+        tdBtn.className = "action-cell";
+        tdBtn.setAttribute("data-label", t("dashboard.table.action"));
+        // While the print runs the choice can still change; afterwards only a
+        // filament still waiting for a spool can be given one
+        if (ctx.printing || filament.status === "pending") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-small";
+            button.textContent = t(sp ? "dashboard.holder.change" : "dashboard.holder.choose");
+            button.addEventListener("click", () => showFilamentSpoolDialog(button, filament));
+            tdBtn.appendChild(button);
+        }
+        tr.appendChild(tdBtn);
         return tr;
     }
 

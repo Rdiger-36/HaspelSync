@@ -32,6 +32,11 @@ import { readJsonFile, writeJsonFile } from "./jsonfile.js";
  * because the slot that ran out reports empty and the refill was forgotten.
  * See `refillsBetween()` in gcode.js. Written when one of them changes, which
  * is a handful of times per print, not on every report.
+ *
+ * So is the spool the user named for each filament of a print that swaps
+ * spools on the external holder by hand, see `holderSwapIndices()` in ams.js.
+ * The printer knows nothing about those spools, so a restart would otherwise
+ * forget every choice made during the print.
  */
 
 const SCHEMA_VERSION = 1;
@@ -160,6 +165,41 @@ export function recallPrintSlots(printerId, jobName) {
         if (candidate && candidate.amsId === amsId && Number.isFinite(candidate.id)) slotSpools[amsId] = candidate;
     }
     return { mapping, refills, slotSpools };
+}
+
+/**
+ * Records the spool named for each filament that runs from a holder swapped by
+ * hand, keyed by the filament's index in the sliced file.
+ *
+ * Only for a job whose start is recorded, for the reason `rememberSlicedFile()`
+ * gives.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {object} choices - index to `{ id, spool }`, as the printer carries them
+ */
+export function rememberFilamentSpools(printerId, choices) {
+    const entry = load()[printerId];
+    if (!entry || typeof entry.startedAt !== "number") return;
+    entry.filamentSpools = choices ?? {};
+    persist();
+}
+
+/**
+ * The spools recorded per filament for a printer's job, if it is the same job
+ * and recent. An entry that does not have the shape it was written in is
+ * dropped, like in `recallPrintSlots()`.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {string|null} jobName - `subtask_name` the printer reports now
+ * @returns {object} index to `{ id, spool }`, empty when nothing is recorded
+ */
+export function recallFilamentSpools(printerId, jobName) {
+    const stored = currentEntry(printerId, jobName)?.filamentSpools;
+    const choices = {};
+    for (const [index, choice] of Object.entries(stored && typeof stored === "object" ? stored : {})) {
+        if (/^\d+$/.test(index) && choice && Number.isInteger(choice.id) && choice.id > 0) choices[index] = choice;
+    }
+    return choices;
 }
 
 /**

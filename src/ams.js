@@ -1,6 +1,6 @@
 import { settings, legacyMode } from "./settings.js";
 import { toClientSpool } from "./uispool.js";
-import { orNull, slotColors, filamentColors, convertAMSandSlot } from "./utils.js";
+import { orNull, slotColors, filamentColors, convertAMSandSlot, EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT } from "./utils.js";
 import { consumptionKey, normColor } from "./gcode.js";
 
 /**
@@ -692,6 +692,37 @@ export function matchConsumption(entries, candidates) {
     }
 
     return result;
+}
+
+/**
+ * The filaments of a print that take turns on one external spool holder, by
+ * their index in the sliced file.
+ *
+ * Bambu Studio's "Use Multicolor with External" sends every filament of a plate
+ * to the holder, and the printer stops at each change for the spool to be
+ * swapped by hand. Traced on a P2S on 2026-10-08 (issue #233): `print.mapping`
+ * read 0xFF00 for all four filaments, the change came as print error 07FFC030
+ * with `gcode_state` staying RUNNING, and the holder went on reporting the first
+ * spool for the whole print. Nothing the printer sends says which spool was
+ * loaded, and its screen offers no way to say it during the print, so the
+ * spool assigned to the holder names one of them at most and the user has to
+ * name the others.
+ *
+ * Only a holder the printer itself named for two or more filaments counts. An
+ * AMS slot named twice is one spool printing two project filaments, which the
+ * slot assignment already books correctly, and a list order estimate is not
+ * evidence of anything.
+ *
+ * @param {object[]} entries - the consumption entries, after resolveSliceSlots()
+ * @returns {Set<number>} the indices of the filaments that need a spool each
+ */
+export function holderSwapIndices(entries) {
+    const byHolder = {};
+    for (const entry of entries) {
+        if (!entry.amsIdFromPrinter || (entry.amsId !== EXTERNAL_SLOT && entry.amsId !== SECOND_EXTERNAL_SLOT)) continue;
+        (byHolder[entry.amsId] ||= new Set()).add(entry.index);
+    }
+    return new Set(Object.values(byHolder).filter(indices => indices.size > 1).flatMap(indices => [...indices]));
 }
 
 /**

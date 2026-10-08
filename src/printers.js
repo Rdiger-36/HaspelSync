@@ -177,6 +177,12 @@ function createRuntimePrinter(entry) {
         // The last bookable spool seen in each slot during the running print,
         // for a refill whose old slot reports empty by the time it happens.
         printSlotSpools: {},
+        // The spool the user named for each filament of a print that swaps
+        // spools on the external holder by hand, keyed by the filament's index
+        // in the sliced file. Kept after the print ends so a filament booked
+        // later still finds its choice; cleared by the next print. See
+        // holderSwapIndices() in ams.js.
+        filamentSpools: {},
         // A slice info download still running for the current job, shared
         // between the print handler and /api/print. See ensureSliceInfo().
         sliceFetchInFlight: null,

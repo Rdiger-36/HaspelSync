@@ -22,7 +22,7 @@ import {
 import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { getMapping, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
-import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots } from "./printstate.js";
+import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, rememberFilamentSpools, recallFilamentSpools } from "./printstate.js";
 import { uniqueSpoolForSlot } from "../public/match.js";
 import { humanLayers } from "../public/shared.js";
 import { describePrintError, describePrintErrorInAll } from "./printerrors.js";
@@ -44,6 +44,7 @@ import {
     hasSpoolUiChanged,
     consumptionCandidate,
     matchConsumption,
+    holderSwapIndices,
     spoolTag,
     modelCanDry,
 } from "./ams.js";
@@ -714,6 +715,7 @@ export async function handlePrintStateChange(printer, print) {
         printer.currentMapping    = null;
         printer.refills           = [];
         printer.printSlotSpools   = {};
+        printer.filamentSpools    = {};
         printer.consumptionBooked = false;
         printer.sliceFetchDone    = false;
 
@@ -810,6 +812,7 @@ export async function handlePrintStateChange(printer, print) {
     }
 
     const errorNow = printer.staleErrorText ? null : reported;
+
     if (errorNow) {
         printer.lastPrintError = errorNow;
         printer.lastPrintErrorDetails = printErrorDetails(print);
@@ -1259,6 +1262,12 @@ function spoolSnapshot(sp) {
  * @param {string|null} jobName - `subtask_name` of the job
  */
 function restorePrintSlots(printer, jobName) {
+    printer.filamentSpools = recallFilamentSpools(printer.id, jobName);
+    const chosen = Object.entries(printer.filamentSpools);
+    if (chosen.length) {
+        console.log(printer.name, printer.logFilePath,
+            `[Print] Spools named per filament taken back from before the restart: ${chosen.map(([index, c]) => `filament ${Number(index) + 1} spool ${c.id}`).join(", ")}`);
+    }
     const slots = recallPrintSlots(printer.id, jobName);
     if (!slots) return;
     printer.printSlotSpools = slots.slotSpools;
@@ -1320,19 +1329,63 @@ export function emptiedPrintSlots(printer, live) {
         const sp = candidate.spool;
         return {
             amsId: candidate.amsId,
-            spool: sp ? {
-                id: sp.id,
-                name: sp.filament?.name ?? null,
-                vendor: sp.filament?.vendor?.name ?? null,
-                material: sp.filament?.material ?? null,
-                colorHex: sp.filament?.color_hex ?? null,
-                multiColorHexes: sp.filament?.multi_color_hexes ?? null,
-                remainingWeight: sp.remaining_weight ?? null,
-                initialWeight: sp.initial_weight ?? null,
-            } : { id: candidate.id },
+            spool: sp ? clientSnapshot(sp) : { id: candidate.id },
             refill: refill ? { to: refill.to, layer: refill.layer } : null,
         };
     });
+}
+
+/**
+ * A spool kept by `spoolSnapshot()`, the way the dashboard reads it.
+ *
+ * @param {object} sp - the snapshot
+ * @returns {object}
+ */
+function clientSnapshot(sp) {
+    return {
+        id: sp.id,
+        name: sp.filament?.name ?? null,
+        vendor: sp.filament?.vendor?.name ?? null,
+        material: sp.filament?.material ?? null,
+        colorHex: sp.filament?.color_hex ?? null,
+        multiColorHexes: sp.filament?.multi_color_hexes ?? null,
+        remainingWeight: sp.remaining_weight ?? null,
+        initialWeight: sp.initial_weight ?? null,
+    };
+}
+
+/**
+ * The filaments of the print on the dashboard that take turns on an external
+ * holder, each with the spool named for it, for the rows under the holder.
+ *
+ * `status` is the booking's word for the filament once the print has ended,
+ * `pending` for one still waiting for a spool, and null while it runs.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {object} fullConsumption - the whole plate, after markHolderSwaps()
+ * @param {object|null} consumption - what has been printed so far, likewise
+ * @returns {object[]}
+ */
+export function holderFilamentView(printer, fullConsumption, consumption) {
+    const rows = printer.lastPrintSummary?.rows || [];
+    return Object.entries(fullConsumption || {})
+        .filter(([, entry]) => entry.holderSwap)
+        .map(([key, entry]) => {
+            const choice = printer.filamentSpools?.[entry.index];
+            const row = printer.consumptionBooked ? rows.find(r => r.index === entry.index) : null;
+            return {
+                index: entry.index,
+                amsId: entry.amsId,
+                type: entry.type ?? null,
+                trayInfoIdx: entry.tray_info_idx ?? null,
+                color: entry.color ?? null,
+                colors: entry.colors ?? null,
+                grams: entry.grams,
+                usedGrams: consumption?.[key]?.grams ?? null,
+                spool: choice?.spool ? clientSnapshot(choice.spool) : choice ? { id: choice.id } : null,
+                status: row?.status ?? null,
+            };
+        });
 }
 
 /**
@@ -1397,6 +1450,7 @@ async function bookConsumption(printer, consumption, state) {
 
     resolveSliceSlots(consumption, slots, { reportedByPrinter: !!reported });
     consumption = splitAtRefills(consumption, printer.currentSliceInfo, printer.refills);
+    const swapped = markHolderSwaps(consumption);
 
     // Logged from here rather than from the caller, which ran before the slots
     // were named and therefore printed every `amsId` as null, which is the one
@@ -1420,7 +1474,7 @@ async function bookConsumption(printer, consumption, state) {
     trace("print", printer.name, printer.logFilePath,
         `[Print] Booking candidates in full: ${JSON.stringify(candidates)}`);
 
-    if (!candidates.length) {
+    if (!candidates.length && !swapped.size) {
         console.log(printer.name, printer.logFilePath, "[Print] No connected or assigned spools, nothing to book");
         return {
             rows: Object.values(consumption).map(info => summaryRow(printer, info, "skipped", unbookedReason(info))),
@@ -1430,7 +1484,10 @@ async function bookConsumption(printer, consumption, state) {
 
     const lastUsed = new Date().toISOString();
     const entries = Object.values(consumption);
-    const matched = matchConsumption(entries, candidates);
+    // A filament swapped onto the holder by hand is booked on the spool named
+    // for it and on nothing else, so it is kept out of the matcher, where it
+    // would land on whatever spool the holder is assigned to
+    const matched = matchConsumption(entries.filter(info => !info.holderSwap), candidates);
     const rows = [];
 
     for (const info of entries) {
@@ -1441,6 +1498,17 @@ async function bookConsumption(printer, consumption, state) {
             // that used none of a loaded colour is a result, not an omission.
             rows.push(summaryRow(printer, info, "unused",
                 "The sliced file lists this filament, but the plate used none of it."));
+            continue;
+        }
+
+        if (info.holderSwap) {
+            const choice = printer.filamentSpools?.[info.index];
+            if (!choice) {
+                console.log(printer.name, printer.logFilePath, `[Print] Filament ${info.index + 1} ${idx} ${type} (${color}) ran from ${info.amsId} with the spool swapped by hand, and nobody named the spool, so ${grams}g wait for one to be chosen in the Web UI`);
+                rows.push(summaryRow(printer, info, "pending", HOLDER_PENDING_NOTE));
+                continue;
+            }
+            rows.push(await bookFilamentOnSpool(printer, info, choice.id, { mapped: true }, lastUsed));
             continue;
         }
 
@@ -1473,39 +1541,181 @@ async function bookConsumption(printer, consumption, state) {
             console.error(printer.name, printer.logFilePath, `[Print] ${matches.length} spools are indistinguishable for ${idx} ${type} (${color}), booking the full ${grams}g to spool ${matches[0].id} (${matches[0].amsId}); assign one of them in the Web UI to choose which spool carries it`);
         }
 
-        const { id: spoolId } = matches[0];
         const ambiguous = matches.length > 1
             ? `${matches.length} spools were indistinguishable; the full amount went to this one.`
             : null;
-
-        try {
-            const booked = await useSpoolWeight(spoolId, grams, lastUsed);
-            console.log(printer.name, printer.logFilePath, `[Print] Booked ${grams}g for spool ${spoolId} (${matches[0].amsId}, ${idx} ${type} ${color}${matches[0].mapped ? ", manually assigned" : ""})`);
-            rows.push({
-                ...summaryRow(printer, info, ambiguous ? "ambiguous" : "booked", ambiguous ?? refillNote(info)),
-                spoolId,
-                // The three fields the dashboard names a filament by. Taken
-                // from the record the booking wrote, so the summary keeps
-                // saying what was booked even after the spool is edited or
-                // taken out of the slot.
-                vendor: booked?.filament?.vendor?.name ?? null,
-                material: booked?.filament?.material ?? null,
-                spoolName: booked?.filament?.name ?? null,
-                mapped: !!matches[0].mapped,
-                remainingWeight: booked?.remaining_weight ?? null,
-            });
-            await archiveWhenEmpty(printer, booked);
-        } catch (err) {
-            console.error(printer.name, printer.logFilePath, `[Print] Failed to book consumption for spool ${spoolId}: ${err.message}`);
-            rows.push({
-                ...summaryRow(printer, info, "failed", `Spoolman refused the booking: ${err.message}`),
-                spoolId,
-                mapped: !!matches[0].mapped,
-            });
-        }
+        rows.push(await bookFilamentOnSpool(printer, info, matches[0].id, { mapped: !!matches[0].mapped, ambiguous }, lastUsed));
     }
 
     return { rows, note: null };
+}
+
+/**
+ * What a summary row says about a filament that ran from a holder swapped by
+ * hand and has no spool named for it yet.
+ */
+const HOLDER_PENDING_NOTE = "Several filaments of this print ran from the external holder, swapped by hand, and the printer does not say which spool was loaded for which. Choose the spool for this filament on the dashboard to book it.";
+
+/**
+ * Books one filament of a print on one spool and describes the outcome as a
+ * summary row.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {object} info - one entry of a consumption map
+ * @param {number} spoolId - the Spoolman spool to book on
+ * @param {{mapped: boolean, ambiguous?: string|null}} how - whether the user
+ *   named the spool, and the note for a booking that had to pick one of several
+ * @param {string} lastUsed - ISO timestamp for the spool's `last_used`
+ * @returns {Promise<object>} the summary row, booked or failed
+ */
+async function bookFilamentOnSpool(printer, info, spoolId, { mapped, ambiguous = null }, lastUsed) {
+    const { tray_info_idx: idx, color, type, grams } = info;
+    try {
+        const booked = await useSpoolWeight(spoolId, grams, lastUsed);
+        console.log(printer.name, printer.logFilePath, `[Print] Booked ${grams}g for spool ${spoolId} (${info.amsId}, ${idx} ${type} ${color}${info.holderSwap ? `, filament ${info.index + 1}, named for it` : mapped ? ", manually assigned" : ""})`);
+        const row = {
+            ...summaryRow(printer, info, ambiguous ? "ambiguous" : "booked", ambiguous ?? refillNote(info)),
+            spoolId,
+            // The three fields the dashboard names a filament by. Taken
+            // from the record the booking wrote, so the summary keeps
+            // saying what was booked even after the spool is edited or
+            // taken out of the slot.
+            vendor: booked?.filament?.vendor?.name ?? null,
+            material: booked?.filament?.material ?? null,
+            spoolName: booked?.filament?.name ?? null,
+            mapped,
+            remainingWeight: booked?.remaining_weight ?? null,
+        };
+        await archiveWhenEmpty(printer, booked);
+        return row;
+    } catch (err) {
+        console.error(printer.name, printer.logFilePath, `[Print] Failed to book consumption for spool ${spoolId}: ${err.message}`);
+        return {
+            ...summaryRow(printer, info, "failed", `Spoolman refused the booking: ${err.message}`),
+            spoolId,
+            mapped,
+        };
+    }
+}
+
+/**
+ * Flags the filaments of a consumption map that take turns on an external
+ * holder, see `holderSwapIndices()` in ams.js, as `holderSwap`.
+ *
+ * Shared by the booking and the dashboard route, so the dashboard asks for a
+ * spool for exactly the filaments the booking will not book without one.
+ *
+ * @param {object} consumption - a map after resolveSliceSlots()
+ * @returns {Set<number>} the indices that were flagged
+ */
+export function markHolderSwaps(consumption) {
+    const entries = Object.values(consumption);
+    const swapped = holderSwapIndices(entries);
+    for (const entry of entries) {
+        if (swapped.has(entry.index)) entry.holderSwap = true;
+    }
+    return swapped;
+}
+
+/**
+ * The filaments of the printer's current or last print that take turns on an
+ * external holder, as consumption entries over the whole plate.
+ *
+ * Only the printer's own mapping can put a filament here, see
+ * `holderSwapIndices()`, so without one the answer is empty.
+ *
+ * @param {object} printer - the runtime printer
+ * @returns {object[]} the flagged entries, in the order of the sliced file
+ */
+export function holderSwapFilaments(printer) {
+    if (!printer.currentSliceInfo || !printer.currentMapping) return [];
+    const consumption = resolveSliceSlots(calcFullConsumption(printer.currentSliceInfo), printer.currentMapping, { reportedByPrinter: true });
+    markHolderSwaps(consumption);
+    return Object.values(consumption).filter(entry => entry.holderSwap);
+}
+
+/**
+ * Names the spool one filament of the running print comes from, for a print
+ * that swaps spools on the external holder by hand. Booked on it when the
+ * print ends.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {number} index - the filament's index in the sliced file
+ * @param {object} spool - the Spoolman spool record
+ * @returns {{ok: boolean, code?: string, error?: string}}
+ */
+export function chooseFilamentSpool(printer, index, spool) {
+    if (!holderSwapFilaments(printer).some(entry => entry.index === index)) {
+        return { ok: false, code: "filamentNotSwapped", error: `Filament ${index + 1} of this print does not run from a holder swapped by hand` };
+    }
+    printer.filamentSpools = { ...printer.filamentSpools, [index]: { id: spool.id, spool: spoolSnapshot(spool) } };
+    rememberFilamentSpools(printer.id, printer.filamentSpools);
+    console.log(printer.name, printer.logFilePath, `[Print] Filament ${index + 1} is printed from spool ${spool.id}, named in the Web UI`);
+    broadcastSSE({ type: "print_filaments", printer: printer.id });
+    return { ok: true };
+}
+
+/**
+ * Takes back the spool named for one filament of the running print.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {number} index - the filament's index in the sliced file
+ * @returns {{ok: boolean}}
+ */
+export function clearFilamentSpool(printer, index) {
+    if (!printer.filamentSpools?.[index]) return { ok: true };
+    const { [index]: dropped, ...rest } = printer.filamentSpools;
+    printer.filamentSpools = rest;
+    rememberFilamentSpools(printer.id, printer.filamentSpools);
+    console.log(printer.name, printer.logFilePath, `[Print] Filament ${index + 1} no longer has spool ${dropped.id} named for it`);
+    broadcastSSE({ type: "print_filaments", printer: printer.id });
+    return { ok: true };
+}
+
+/**
+ * Books a filament of the last print that was left waiting for a spool, see
+ * `HOLDER_PENDING_NOTE`, on the spool chosen for it now.
+ *
+ * The summary row is what is booked: it carries the grams the print used of
+ * the filament, worked out when the print ended. It is taken off the waiting
+ * list before the booking is sent, so a second request for the same filament
+ * finds nothing to book rather than booking it twice.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {number} index - the filament's index in the sliced file
+ * @param {object} spool - the Spoolman spool record
+ * @returns {Promise<{ok: boolean, code?: string, error?: string, row?: object}>}
+ */
+export async function bookFilamentLater(printer, index, spool) {
+    const rows = printer.lastPrintSummary?.rows || [];
+    const position = rows.findIndex(row => row.index === index && row.status === "pending");
+    if (position < 0) {
+        return { ok: false, code: "filamentNothingPending", error: `Filament ${index + 1} of the last print is not waiting for a spool` };
+    }
+
+    const pending = rows[position];
+    rows[position] = { ...pending, status: "booking" };
+    const info = {
+        index,
+        tray_info_idx: pending.trayInfoIdx,
+        color: pending.color,
+        colors: pending.colors,
+        type: pending.type,
+        amsId: pending.amsId,
+        amsIdFromPrinter: true,
+        holderSwap: true,
+        grams: pending.grams,
+    };
+    const row = await bookFilamentOnSpool(printer, info, spool.id, { mapped: true }, new Date().toISOString());
+    if (row.status === "failed") {
+        rows[position] = pending;
+        return { ok: false, code: "filamentBookingFailed", error: row.note };
+    }
+
+    rows[position] = row;
+    printer.filamentSpools = { ...printer.filamentSpools, [index]: { id: spool.id, spool: spoolSnapshot(spool) } };
+    broadcastSSE({ type: "print_filaments", printer: printer.id });
+    return { ok: true, row };
 }
 
 /**
@@ -1552,7 +1762,9 @@ export function unbookedReason(info) {
  * @returns {object|null} the Spoolman filament record, or null
  */
 export function slotFilament(printer, info) {
-    if (!info.amsId || !info.amsIdFromPrinter) return null;
+    // The holder reports the first spool of a print swapped by hand for the
+    // whole of it, so it names none of the others
+    if (!info.amsId || !info.amsIdFromPrinter || info.holderSwap) return null;
 
     const uiSpool = (printer.spoolData || []).find(spool => spool.amsId === info.amsId);
     return uiSpool?.existingSpool?.filament ?? null;
@@ -1566,7 +1778,7 @@ export function slotFilament(printer, info) {
  *
  * @param {object} printer - the runtime printer, for the slot lookup
  * @param {object} info - one entry of a consumption map
- * @param {string} status - booked, ambiguous, skipped, unused or failed
+ * @param {string} status - booked, ambiguous, skipped, pending, unused or failed
  * @param {string|null} note - why, for everything that is not a plain booking
  * @returns {object} the row
  */
@@ -1577,6 +1789,9 @@ function summaryRow(printer, info, status, note = null) {
     const filament = slotFilament(printer, info);
 
     return {
+        // The filament's position in the sliced file, which is what a spool
+        // chosen after the print is booked by, see bookFilamentLater()
+        index: info.index ?? null,
         amsId: info.amsId ?? null,
         trayInfoIdx: info.tray_info_idx ?? null,
         type: info.type ?? null,

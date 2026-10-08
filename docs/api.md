@@ -103,6 +103,8 @@ What the dashboard shows: connection state, slots, the running print, and the li
 | `GET /api/spools/{printerId}` | Every slot of a printer, with what is in it, what the tag and the printer's filament table say about it, and what Spoolman holds for it |
 | `GET /api/print/{printerId}` | The running or last print: state, progress and consumption per slot |
 | `POST /api/print/{printerId}/clear` | Clear the finished print from the dashboard now |
+| `PUT /api/print/{printerId}/filament/{index}` | Name the spool a filament swapped onto the external holder came from, booked at once after the print |
+| `DELETE /api/print/{printerId}/filament/{index}` | Take that spool back while the print runs |
 | `GET /api/events` | Live updates as Server-Sent Events (SSE stream) |
 
 ### Monitoring

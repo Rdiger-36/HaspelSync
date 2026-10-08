@@ -272,6 +272,18 @@ build their Spoolman payload from.
   `filam_bak` are not the signal: during the tail in the tube the P2S reported
   `tray_now` 0 for a slot it never loaded, and the backup group vanished from
   `filam_bak` the moment the spool ran out.
+- **Filaments swapped onto the external holder by hand are booked per
+  filament.** Bambu Studio's "Use Multicolor with External" sends every
+  filament to the holder and the printer stops at each change; traced on a P2S
+  (issue #233), `print.mapping` read 0xFF00 for all of them, the change came as
+  print error 07FFC030 with `gcode_state` staying RUNNING, and the holder
+  reported the first spool for the whole print. `holderSwapIndices()` in
+  `ams.js` names those filaments, only where the printer itself put two or more
+  on one holder, and `markHolderSwaps()` flags them as `holderSwap` for the
+  booking and the dashboard alike. They are kept out of `matchConsumption()` and
+  booked only on the spool named per filament (`printer.filamentSpools`, kept in
+  printstate.json); one without a spool is summarised as `pending` and booked by
+  `bookFilamentLater()` once a spool is chosen, until the next print starts.
 - **A position is resolved against the printer, never computed.**
   `resolveSliceSlots()` takes the slots from `orderedAmsSlots()`, which lists the
   four slot units by unit id and then by slot, then the external holder, then an

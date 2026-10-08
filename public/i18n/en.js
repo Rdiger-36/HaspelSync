@@ -867,6 +867,7 @@ I18N.register("en", "English", {
     "error.spoolIdInvalid": "The spool id must be a positive integer",
     "error.spoolNotFound": "Spool {id} not found in Spoolman",
     "error.tooManyAttempts": {"one":"Too many attempts. Try again in {count} second.","other":"Too many attempts. Try again in {count} seconds."},
+    "error.unknownScope": "The logs picked for the download are not known to this service",
     "error.unknownNotice": "Unknown notice",
     "error.weightAboveLimit": "This spool holds at most {limit} g, so it cannot have {weight} g left",
     "error.weightInvalid": "The remaining weight must be a number of grams, zero or more",

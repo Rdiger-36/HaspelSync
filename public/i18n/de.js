@@ -864,6 +864,7 @@ I18N.register("de", "Deutsch", {
     "error.spoolIdInvalid": "Die Spulen-ID muss eine positive ganze Zahl sein",
     "error.spoolNotFound": "Spule {id} gibt es in Spoolman nicht",
     "error.tooManyAttempts": {"one":"Zu viele Versuche. Bitte in {count} Sekunde erneut versuchen.","other":"Zu viele Versuche. Bitte in {count} Sekunden erneut versuchen."},
+    "error.unknownScope": "Die für den Download gewählten Logs kennt dieser Dienst nicht",
     "error.unknownNotice": "Unbekannter Hinweis",
     "error.weightAboveLimit": "Diese Spule fasst höchstens {limit} g, es können also nicht {weight} g übrig sein",
     "error.weightInvalid": "Das Restgewicht muss eine Grammzahl von null oder mehr sein",

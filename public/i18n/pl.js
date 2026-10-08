@@ -864,6 +864,7 @@ I18N.register("pl", "Polski", {
     "error.spoolIdInvalid": "Identyfikator szpuli musi być dodatnią liczbą całkowitą",
     "error.spoolNotFound": "Nie znaleziono szpuli {id} w Spoolman",
     "error.tooManyAttempts": {"one":"Zbyt wiele prób. Spróbuj ponownie za {count} sekundę.","few":"Zbyt wiele prób. Spróbuj ponownie za {count} sekundy.","many":"Zbyt wiele prób. Spróbuj ponownie za {count} sekund.","other":"Zbyt wiele prób. Spróbuj ponownie za {count} sekundy."},
+    "error.unknownScope": "Wybrane do pobrania logi nie są znane tej usłudze",
     "error.unknownNotice": "Nieznany komunikat",
     "error.weightAboveLimit": "Ta szpula mieści najwyżej {limit} g, więc nie może na niej pozostać {weight} g",
     "error.weightInvalid": "Pozostała masa musi być nieujemną liczbą gramów",

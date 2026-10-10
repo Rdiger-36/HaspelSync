@@ -163,4 +163,4 @@ The licences of both are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Support me
 
-<a href="https://www.buymeacoffee.com/Rdiger36"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="36" /></a>
+<a href="https://ko-fi.com/rdiger36"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=3" alt="Buy Me a Coffee at ko-fi.com" height="36" /></a>

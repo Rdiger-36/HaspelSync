@@ -164,3 +164,5 @@ The licences of both are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 ## Support me
 
 <a href="https://ko-fi.com/rdiger36"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=3" alt="Buy Me a Coffee at ko-fi.com" height="36" /></a>
+
+A big thank you to all my [supporters](https://github.com/Rdiger-36/Rdiger-36/blob/main/SUPPORTERS.md)!

@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.5-dev.2
    - Fixes:
       - The name of a MakerWorld model on the dashboard and in the print report shows quotes, ampersands and umlauts as they are. MakerWorld hands out its titles HTML escaped and Bambu Studio escapes them once more, so a title read "Maritimes &quot;MOIN&quot; Schild" or "Switch &amp; 100%" (issue #237)
 

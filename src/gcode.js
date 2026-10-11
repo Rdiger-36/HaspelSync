@@ -677,16 +677,57 @@ export function parsePlateIndices(xml) {
 }
 
 /**
- * The five entities XML escapes with, for a title written by Bambu Studio.
+ * The HTML entity names of Latin-1 from U+00A0 to U+00FF, in code point order.
+ */
+const LATIN1_ENTITIES = ("nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr "
+    + "deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest "
+    + "Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml "
+    + "ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig "
+    + "agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml "
+    + "eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml").split(" ");
+
+/**
+ * The named HTML entities a model title can carry: the XML five, Latin-1 and
+ * the punctuation a title is typed with.
+ */
+const HTML_ENTITIES = {
+    ...Object.fromEntries(LATIN1_ENTITIES.map((name, i) => [name, String.fromCodePoint(0xA0 + i)])),
+    lt: "<", gt: ">", quot: "\"", apos: "'", amp: "&",
+    ndash: "–", mdash: "—", hellip: "…", bull: "•",
+    lsquo: "‘", rsquo: "’", sbquo: "‚", ldquo: "“", rdquo: "”", bdquo: "„",
+    euro: "€", trade: "™", OElig: "Œ", oelig: "œ",
+};
+
+/**
+ * One layer of entities resolved: numeric references and the names in
+ * `HTML_ENTITIES`. An unknown name, or a number outside Unicode, stays as it
+ * was written.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function decodeEntities(text) {
+    return text.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([A-Za-z][A-Za-z0-9]*));/g, (whole, dec, hex, name) => {
+        if (name) return Object.hasOwn(HTML_ENTITIES, name) ? HTML_ENTITIES[name] : whole;
+        const code = dec ? Number(dec) : parseInt(hex, 16);
+        return code > 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : whole;
+    });
+}
+
+/**
+ * A title written by Bambu Studio, unescaped.
+ *
+ * Two layers, because MakerWorld hands out its titles HTML escaped and Bambu
+ * Studio escapes them once more for the XML: issue #237 showed
+ * `Maritimes &quot;MOIN&quot; Schild` and `Switch &amp; 100%` on the
+ * dashboard, read from `&amp;quot;` and `&amp;amp;` in the file. A title of
+ * one layer, `Darts Holder &amp; Storage`, comes out the same either way.
  *
  * @param {string} text
  * @returns {string}
  */
 function unescapeXml(text) {
-    return text
-        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&quot;/g, "\"").replace(/&apos;/g, "'")
-        .replace(/&amp;/g, "&");
+    return decodeEntities(decodeEntities(text));
 }
 
 /**

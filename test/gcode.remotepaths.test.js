@@ -100,6 +100,25 @@ test("a job named after its print profile takes the model's title from the file"
     assert.equal(modelTitleFor("Cube", { title: "Cube", profileTitle: "Cube" }), null);
 });
 
+test("a MakerWorld title escaped twice reads as the model's title", () => {
+    // Issue #237, a P2S on 2026-10-11: MakerWorld escapes the title for HTML
+    // and Bambu Studio once more for the XML, so the dashboard showed &quot;
+    const xml = `<model><metadata name="ProfileTitle">Roter Leuchtturm</metadata>
+<metadata name="Title">Maritimes &amp;quot;MOIN&amp;quot; Schild mit Leuchtturm Aufsteller</metadata></model>`;
+    assert.equal(parseModelNames(xml).title, "Maritimes \"MOIN\" Schild mit Leuchtturm Aufsteller");
+    assert.deepEqual(
+        parseModelTitles("<metadata name=\"Title\">Cutest Oyster | Switch &amp;amp; 100% Printed Clicker</metadata>"),
+        ["Cutest Oyster | Switch & 100% Printed Clicker"]);
+
+    // Umlauts by name, by number and in hex, escaped once or twice
+    const title = value => parseModelNames(`<metadata name="Title">${value}</metadata>`).title;
+    assert.equal(title("Gr&amp;uuml;&amp;szlig;e f&amp;#252;r &amp;#xD6;fen"), "Grüße für Öfen");
+    assert.equal(title("Gr&#252;&#xDF;e"), "Grüße");
+    assert.equal(title("Grüße &amp;ndash; Br&amp;auml;u"), "Grüße – Bräu");
+    // Neither an unknown name nor a code point outside Unicode is guessed at
+    assert.equal(title("A &amp;foo; B &amp;#99999999;"), "A &foo; B &#99999999;");
+});
+
 test("the log names the problem it actually had", () => {
     assert.equal(sliceFetchFailure(null), "No sliced file was fetched");
     // The login itself failed, so no path was tried: a P2S whose FTPS service

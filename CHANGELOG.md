@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.5-dev.3
    - Fixes:
       - A request the API cannot read, a body that is not valid JSON for example, is answered like every other failed request, with a JSON error and a code the Web UI translates. Express answered it with its own HTML page and wrote the error into the log where the device name belongs, and an unexpected error inside a route did the same
 

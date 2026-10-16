@@ -52,10 +52,9 @@ Ordered by how likely a user is to hit it.
   and removed next to the real P2S over the Web UI: immediate connect attempt,
   backoff, its own log file, "Disconnected / No update yet" on the dashboard,
   and the dashboard back on the P2S without a reload once it was deleted.
-- [ ] **The update check with a newer release.** Only the prerelease path was
-  observed, where the running version is ahead of the latest release. The
-  "version X is available" path has never been rendered against a real answer.
-  `1.3.1` is the first release that shows it, on every `1.3.0` installation.
+- [x] **The update check with a newer release.** Confirmed on 2026-10-16:
+  the "version X is available" path renders against a real answer, after the
+  prerelease path where the running version is ahead of the latest release.
 - [x] **What P2S stages 51 and 54 are.** Named in 1.3.0-dev.13: 51 is the
   calibration lines and 54 the heatbed coming up to temperature, both counted
   as preparing. Stages 36 to 77 followed in dev.14 from ha-bambulab's table.

@@ -39,6 +39,37 @@ test("an unknown setting is refused", async () => {
     assert.match(body.error, /Unknown setting/);
 });
 
+test("a body that is not JSON is answered in the shape of every route", async () => {
+    const response = await fetch(`${app.url}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...UI_HEADERS },
+        body: "{broken",
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.headers.get("content-type"), /application\/json/);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.code, "invalidJson");
+    assert.equal(app.readJson("settings.json"), null);
+});
+
+test("an error inside a handler is answered as a 500 without its details", async () => {
+    // Imported here, after startTestApp() pointed DATA_DIR at the temporary directory.
+    const { handleRequestError } = await import("../src/routes.js");
+    const answer = {};
+    const res = {
+        headersSent: false,
+        status(code) { answer.status = code; return this; },
+        json(body) { answer.body = body; return this; },
+    };
+
+    handleRequestError(new Error("secret detail"), { method: "GET", path: "/api/x" }, res, () => assert.fail("next() called"));
+
+    assert.equal(answer.status, 500);
+    assert.deepEqual(answer.body, { ok: false, error: "Internal server error", code: "internalError" });
+});
+
 test("saving clamps into the documented range and writes the file", async () => {
     const { status, body } = await call(`${app.url}/api/settings`, "PUT", { UPDATE_INTERVAL: "1000" });
 

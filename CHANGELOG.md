@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A request the API cannot read, a body that is not valid JSON for example, is answered like every other failed request, with a JSON error and a code the Web UI translates. Express answered it with its own HTML page and wrote the error into the log where the device name belongs, and an unexpected error inside a route did the same
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.5-dev.2
    - Fixes:
       - The name of a MakerWorld model on the dashboard and in the print report shows quotes, ampersands and umlauts as they are. MakerWorld hands out its titles HTML escaped and Bambu Studio escapes them once more, so a title read "Maritimes &quot;MOIN&quot; Schild" or "Switch &amp; 100%" (issue #237)

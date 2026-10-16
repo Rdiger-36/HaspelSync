@@ -16,7 +16,7 @@ import { restartSpoolmanConnection, restartService } from "./service.js";
 import { state } from "./state.js";
 import { attemptLogin, authEnabled, clearSessionCookie, isAuthenticated, issueSession, setSessionCookie } from "./auth.js";
 import { createApiKey, listApiKeys, removeApiKey } from "./apikeys.js";
-import { tailLogLines, logFileSet } from "./logger.js";
+import { debug, tailLogLines, logFileSet } from "./logger.js";
 import { toClientSpool, loadedSlotIds } from "./uispool.js";
 import { catalogueFacet, filterCatalogue, spoolWeightLimit, SLOT_OPTIONS } from "./utils.js";
 import {
@@ -1592,6 +1592,36 @@ export function registerRoutes(app, printers) {
 
         res.json({ ok: mqttResult.ok && ftpsResult.ok, mqtt: mqttResult, ftps: ftpsResult });
     });
+
+    // Last, so it also catches what express.json() in front of the routes
+    // throws. Without it Express answers with its own HTML page and logs the
+    // error through console.error(err), which the logger reads as a device.
+    app.use(handleRequestError);
+}
+
+/**
+ * Answers a request that failed before or inside a handler in the shape every
+ * route uses, and logs it through the overridden console.
+ *
+ * A 4xx is the caller's mistake, a body that is not JSON for example, and only
+ * reaches the debug log: a misbehaving script must not fill the server log.
+ * Anything else is ours and is logged as an error with its stack. The path is
+ * logged without its query, which can carry an API key.
+ */
+export function handleRequestError(err, req, res, next) {
+    if (res.headersSent) return next(err);
+
+    const status = Number(err?.status || err?.statusCode);
+    if (status >= 400 && status < 500) {
+        debug("service", "Server", serverLogFilePath, `[HTTP] ${req.method} ${req.path} rejected with ${status}: ${err.message}`);
+        const body = err.type === "entity.parse.failed"
+            ? { ok: false, error: "The request body is not valid JSON", code: "invalidJson" }
+            : { ok: false, error: err.expose ? err.message : "The request was rejected", code: "requestRejected" };
+        return res.status(status).json(body);
+    }
+
+    console.error("Server", serverLogFilePath, `[HTTP] ${req.method} ${req.path} failed:`, err?.stack || String(err));
+    res.status(500).json({ ok: false, error: "Internal server error", code: "internalError" });
 }
 
 /**

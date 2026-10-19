@@ -1,19 +1,11 @@
 -----------------------------------------------------------------------------------------------
-Version 1.3.5-dev.3
-   - Fixes:
-      - A request the API cannot read, a body that is not valid JSON for example, is answered like every other failed request, with a JSON error and a code the Web UI translates. Express answered it with its own HTML page and wrote the error into the log where the device name belongs, and an unexpected error inside a route did the same
-
------------------------------------------------------------------------------------------------
-Version 1.3.5-dev.2
-   - Fixes:
-      - The name of a MakerWorld model on the dashboard and in the print report shows quotes, ampersands and umlauts as they are. MakerWorld hands out its titles HTML escaped and Bambu Studio escapes them once more, so a title read "Maritimes &quot;MOIN&quot; Schild" or "Switch &amp; 100%" (issue #237)
-
------------------------------------------------------------------------------------------------
-Version 1.3.5-dev.1
+Version 1.3.5
    - New Features:
       - A print sliced with "Use Multicolor with External" books each of its filaments on the spool it really came from. Bambu Studio sends every filament to the external holder and the printer stops at each change for the spool to be swapped by hand, but it goes on reporting the first spool for the whole print, so until now every filament was booked on the spool assigned to the holder. The dashboard now lists the filaments of such a print under the External row, each with a "Choose spool" button, and books each one on the spool chosen for it. A filament nobody chose a spool for by the end of the print waits instead of being booked on the wrong spool: the print card says how many do, the report marks them, and choosing a spool there books it straight away (issue #233)
    - Fixes:
       - The report of a print no longer names a prompt the printer showed and cleared again while the print went on. A spool swapped by hand on the external holder brings up "check the nozzle" and similar prompts at every change, and the report of a print that finished cleanly said the last of them was what happened to it
+      - The name of a MakerWorld model on the dashboard and in the print report shows quotes, ampersands and umlauts as they are. MakerWorld hands out its titles HTML escaped and Bambu Studio escapes them once more, so a title read "Maritimes &quot;MOIN&quot; Schild" or "Switch &amp; 100%" (issue #237)
+      - A request the API cannot read, a body that is not valid JSON for example, is answered like every other failed request, with a JSON error and a code the Web UI translates. Express answered it with its own HTML page and wrote the error into the log where the device name belongs, and an unexpected error inside a route did the same
 
 -----------------------------------------------------------------------------------------------
 Version 1.3.4

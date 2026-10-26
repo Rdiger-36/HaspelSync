@@ -23,10 +23,13 @@ const app = express();
 // never needed one, and the wildcard it used to send was an invitation to every
 // page the user has open elsewhere. See src/security.js.
 app.use(hostGuard());
-app.use(express.json());
 // Behind the guard and in front of the static files, so a page is not served to
 // somebody who cannot use it. Does nothing until a password is set.
 app.use(requireAuth());
+// Behind the password, so a request turned away there never has its body
+// inflated or parsed: the Brotli decoder Node bundles could be made to run code
+// by one (CVE-2026-111497). The public /api/auth/ routes are still parsed.
+app.use(express.json());
 // Every language table in one script, so a table added to public/i18n/ is
 // picked up without touching a page. Before the static files, which have no
 // file of that name. See src/languages.js.

@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.6
    - Fixes:
       - The image is built on Node.js 22.23.4, which fixes Node2Shell (CVE-2026-111497): the Brotli decoder bundled with Node.js could be made to run code by a crafted compressed request body. Images up to 1.3.5 were built before the fix and should be replaced
       - The service reads the body of a request only once the request is allowed in, after the password, the API key or the Web UI check. A request turned away there is no longer decompressed or parsed at all

@@ -54,6 +54,20 @@ test("a body that is not JSON is answered in the shape of every route", async ()
     assert.equal(app.readJson("settings.json"), null);
 });
 
+test("a body is not parsed for a caller the API turns away", async () => {
+    // The parser sits behind requireAuth(), so the broken body is never read:
+    // the answer is the missing key, not the broken JSON.
+    const response = await fetch(`${app.url}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: "{broken",
+    });
+
+    assert.equal(response.status, 401);
+    const body = await response.json();
+    assert.equal(body.apiKeyRequired, true);
+});
+
 test("an error inside a handler is answered as a 500 without its details", async () => {
     // Imported here, after startTestApp() pointed DATA_DIR at the temporary directory.
     const { handleRequestError } = await import("../src/routes.js");

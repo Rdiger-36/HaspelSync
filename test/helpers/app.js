@@ -45,10 +45,10 @@ export async function startTestApp({ seedPrinters } = {}) {
     // than in front of it. The server listens on 127.0.0.1, so every request a
     // test makes carries an IP address as its host and passes.
     app.use(hostGuard());
-    app.use(express.json());
     // Same order as backend.js. It does nothing until a password is set, so
     // every other suite is unaffected.
     app.use(requireAuth());
+    app.use(express.json());
     registerRoutes(app, printers);
 
     const server = app.listen(0, "127.0.0.1");

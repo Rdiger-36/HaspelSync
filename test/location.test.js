@@ -108,6 +108,22 @@ test("the location follows the template", () => {
     assert.equal(slotLocation("X1C", "HT-A"), "AMS HT-A (X1C)");
 });
 
+test("the unit names the AMS, not the slot", () => {
+    settings.LOCATION_FORMAT = "{printer} AMS {unit}";
+    assert.equal(slotLocation("Office", "A1"), "Office AMS A");
+    assert.equal(slotLocation("Office", "A4"), "Office AMS A");
+    assert.equal(slotLocation("Office", "D2"), "Office AMS D");
+    assert.equal(slotLocation("Office", "HT-B"), "Office AMS HT-B");
+    assert.equal(slotLocation("Office", "External-2"), "Office AMS External-2");
+});
+
+test("a location written with the unit is ours", () => {
+    settings.LOCATION_FORMAT = "{printer} AMS {unit}";
+    assert.equal(ownsLocation("Office AMS A", "Office"), true);
+    assert.equal(ownsLocation("Office AMS HT-A", "Office"), true);
+    assert.equal(ownsLocation("Office 2 AMS A", "Office"), false);
+});
+
 test("a template without the printer falls back to the default", () => {
     // Only a hand edited settings file gets here, the settings API refuses it.
     settings.LOCATION_FORMAT = "{slot}";

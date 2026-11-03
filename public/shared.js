@@ -386,7 +386,19 @@ export function effectiveLocationFormat(format) {
 }
 
 /**
+ * The unit a slot belongs to: `A` for `A1` to `A4`, `HT-A` for `HT-A`,
+ * `External` for `External`. A unit with a single slot is its own label.
+ */
+export function slotUnit(slot) {
+    const match = /^([A-Z])\d+$/.exec(slot);
+    return match ? match[1] : slot;
+}
+
+/**
  * The location of a spool in `slot` of `printerName`, built from `format`.
+ *
+ * `{unit}` is what lets a location name the AMS rather than the slot, so the
+ * four spools of `Office AMS A` share one location.
  *
  * The server writes this string and the create spool dialog suggests it, so
  * both have to build it here.
@@ -399,13 +411,14 @@ export function effectiveLocationFormat(format) {
 export function slotLocation(format, printerName, slot) {
     return effectiveLocationFormat(format)
         .replaceAll("{printer}", printerName)
+        .replaceAll("{unit}", slotUnit(slot))
         .replaceAll("{slot}", slot);
 }
 
 /**
  * Whether `location` could have been built from `format` for this printer.
  *
- * The slot is a wildcard, so a spool moved from A1 to A2 still carries a
+ * The slot and the unit are wildcards, so a spool moved from A1 to A2 still carries a
  * location that is ours until the new slot is written. It only matches what a
  * slot label consists of (letters, digits and the hyphen of `HT-A` and
  * `External-2`), never a space, so `X 2 A1` is not a location of printer `X`
@@ -421,8 +434,8 @@ export function matchesLocationFormat(location, format, printerName) {
     if (!location || !printerName) return false;
     const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = effectiveLocationFormat(format)
-        .split(/(\{printer\}|\{slot\})/)
-        .map(part => part === "{printer}" ? escape(printerName) : part === "{slot}" ? "[A-Za-z0-9-]+" : escape(part))
+        .split(/(\{printer\}|\{unit\}|\{slot\})/)
+        .map(part => part === "{printer}" ? escape(printerName) : part === "{unit}" || part === "{slot}" ? "[A-Za-z0-9-]+" : escape(part))
         .join("");
     return new RegExp(`^${pattern}$`).test(location);
 }

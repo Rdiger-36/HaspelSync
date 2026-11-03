@@ -147,7 +147,7 @@ export const SETTINGS_SCHEMA = {
         group: "sync",
         advanced: true,
         label: "Location format",
-        description: "Template of the location written while the slot is stored as location. {printer} is replaced by the printer name and is required, {slot} by the slot, for example A1. Leave {slot} out to store the printer name alone.",
+        description: "Template of the location written while the slot is stored as location. {printer} is replaced by the printer name and is required, {unit} by the AMS unit, for example A or HT-A, and {slot} by the slot, for example A1. \"{printer} AMS {unit}\" gives the four spools of a unit one location, \"{printer}\" alone stores the printer name.",
     },
     ARCHIVE_EMPTY_SPOOLS: {
         type: "boolean",

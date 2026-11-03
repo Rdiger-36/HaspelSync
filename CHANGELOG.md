@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------------------------
 Unreleased
    - New Features:
-      - The Spoolman location written for a spool in a slot follows a template, "Location format" in the Synchronisation card. `{printer}` stands for the printer name and is required, `{slot}` for the slot. The default `{printer} - {slot}` writes what was written before, and `{printer}` alone stores the printer name without the slot. Changing the template rewrites the locations of the spools that are loaded, and a location written with the old default is still cleared when its spool is taken out. The create spool dialog suggests the location from the same template. Can be seeded with `LOCATION_FORMAT` (issue #248)
+      - The Spoolman location written for a spool in a slot follows a template, "Location format" in the Synchronisation card. `{printer}` stands for the printer name and is required, `{unit}` for the AMS unit (`A`, `HT-A`) and `{slot}` for the slot (`A1`). The default `{printer} - {slot}` writes what was written before, `{printer} AMS {unit}` gives the four spools of a unit one location, and `{printer}` alone stores the printer name. Changing the template rewrites the locations of the spools that are loaded, and a location written with the old default is still cleared when its spool is taken out. The create spool dialog suggests the location from the same template. Can be seeded with `LOCATION_FORMAT` (issue #248)
 
 -----------------------------------------------------------------------------------------------
 Version 1.3.6

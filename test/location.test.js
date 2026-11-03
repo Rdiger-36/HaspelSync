@@ -45,6 +45,7 @@ const {
     releasePrinterLocations,
     renamePrinterLocations,
     reformatPrinterLocations,
+    claimPrinterLocations,
 } = await import("../src/location.js");
 
 const printer = { id: "01P00A000000011", name: "Test Printer", logFilePath: null };
@@ -122,6 +123,15 @@ test("a location written with the unit is ours", () => {
     assert.equal(ownsLocation("Office AMS A", "Office"), true);
     assert.equal(ownsLocation("Office AMS HT-A", "Office"), true);
     assert.equal(ownsLocation("Office 2 AMS A", "Office"), false);
+});
+
+test("the number is the position in the unit, 1 for a unit with one slot", () => {
+    settings.LOCATION_FORMAT = "{printer} AMS {unit} Slot {number}";
+    assert.equal(slotLocation("Office", "B3"), "Office AMS B Slot 3");
+    assert.equal(slotLocation("Office", "HT-A"), "Office AMS HT-A Slot 1");
+    assert.equal(slotLocation("Office", "External"), "Office AMS External Slot 1");
+    assert.equal(ownsLocation("Office AMS B Slot 3", "Office"), true);
+    assert.equal(ownsLocation("Office AMS B Slot x", "Office"), false);
 });
 
 test("a template without the printer falls back to the default", () => {
@@ -395,4 +405,33 @@ test("a rename reads the location from Spoolman, not from the cached slot", asyn
     await renamePrinterLocations(printer, "Old Name");
 
     assert.deepEqual(patches, [{ id: 1, payload: { location: "New Name - A1" } }]);
+});
+
+test("switching the setting on writes every loaded slot", async () => {
+    // The gap this closes: a slot is only processed when it changes, so the
+    // spools already loaded stayed without a location.
+    seed(1, null);
+    seed(2, "Shelf A");
+    printer.spoolData = [
+        { amsId: "A1", connectedViaTag: true, existingSpool: { id: 1 } },
+        { amsId: "A2", connectedViaMapping: true, existingSpool: { id: 2 } },
+        { amsId: "A3", existingSpool: { id: 3 } },
+    ];
+
+    await claimPrinterLocations(printer);
+
+    assert.deepEqual(patches, [
+        { id: 1, payload: { location: "Test Printer - A1" } },
+        { id: 2, payload: { location: "Test Printer - A2" } },
+    ]);
+});
+
+test("claiming every slot writes nothing while the setting is off", async () => {
+    seed(1, null);
+    printer.spoolData = [{ amsId: "A1", connectedViaTag: true, existingSpool: { id: 1 } }];
+    settings.SET_LOCATION = false;
+
+    await claimPrinterLocations(printer);
+
+    assert.deepEqual(patches, []);
 });

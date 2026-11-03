@@ -395,6 +395,18 @@ export function slotUnit(slot) {
 }
 
 /**
+ * The position of a slot within its unit: `3` for `A3`.
+ *
+ * A unit with a single slot (an AMS HT, the external holder) is position 1
+ * rather than nothing, so `AMS {unit} Slot {number}` reads `AMS HT-A Slot 1`
+ * instead of ending on a dangling word.
+ */
+export function slotNumber(slot) {
+    const match = /^[A-Z](\d+)$/.exec(slot);
+    return match ? match[1] : "1";
+}
+
+/**
  * The location of a spool in `slot` of `printerName`, built from `format`.
  *
  * `{unit}` is what lets a location name the AMS rather than the slot, so the
@@ -412,16 +424,17 @@ export function slotLocation(format, printerName, slot) {
     return effectiveLocationFormat(format)
         .replaceAll("{printer}", printerName)
         .replaceAll("{unit}", slotUnit(slot))
+        .replaceAll("{number}", slotNumber(slot))
         .replaceAll("{slot}", slot);
 }
 
 /**
  * Whether `location` could have been built from `format` for this printer.
  *
- * The slot and the unit are wildcards, so a spool moved from A1 to A2 still carries a
- * location that is ours until the new slot is written. It only matches what a
- * slot label consists of (letters, digits and the hyphen of `HT-A` and
- * `External-2`), never a space, so `X 2 A1` is not a location of printer `X`
+ * The slot, the unit and the number are wildcards, so a spool moved from A1
+ * to A2 still carries a location that is ours until the new slot is written.
+ * They only match what a slot label consists of (letters, digits and the
+ * hyphen of `HT-A` and `External-2`), never a space, so `X 2 A1` is not a location of printer `X`
  * under `{printer} {slot}`, and a name that merely starts like this printer's
  * does not match either: the whole string has to fit.
  *
@@ -434,8 +447,13 @@ export function matchesLocationFormat(location, format, printerName) {
     if (!location || !printerName) return false;
     const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = effectiveLocationFormat(format)
-        .split(/(\{printer\}|\{unit\}|\{slot\})/)
-        .map(part => part === "{printer}" ? escape(printerName) : part === "{unit}" || part === "{slot}" ? "[A-Za-z0-9-]+" : escape(part))
+        .split(/(\{printer\}|\{unit\}|\{slot\}|\{number\})/)
+        .map(part => {
+            if (part === "{printer}") return escape(printerName);
+            if (part === "{unit}" || part === "{slot}") return "[A-Za-z0-9-]+";
+            if (part === "{number}") return "\\d+";
+            return escape(part);
+        })
         .join("");
     return new RegExp(`^${pattern}$`).test(location);
 }

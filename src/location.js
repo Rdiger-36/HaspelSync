@@ -244,3 +244,21 @@ export async function reformatPrinterLocations(printer, previousFormat) {
         await claimSlotLocation(printer, amsId, spool);
     }
 }
+
+/**
+ * Writes the location of every spool this printer's slots hold.
+ *
+ * Called when the setting is switched on. A slot only claims its location
+ * while it is processed, and a slot is only processed when something about it
+ * changed, so the spools that were already loaded went without a location
+ * until they were moved or ran a print.
+ *
+ * @param {object} printer - the printer runtime object
+ */
+export async function claimPrinterLocations(printer) {
+    if (!settings.SET_LOCATION) return;
+
+    for (const { amsId, spool } of await occupiedSlots(printer)) {
+        await claimSlotLocation(printer, amsId, spool);
+    }
+}

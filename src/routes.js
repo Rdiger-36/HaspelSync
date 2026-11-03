@@ -47,6 +47,7 @@ import {
     releasePrinterLocations,
     renamePrinterLocations,
     reformatPrinterLocations,
+    claimPrinterLocations,
     slotLocation,
 } from "./location.js";
 
@@ -1286,13 +1287,19 @@ export function registerRoutes(app, printers) {
         if (result.changed.includes("AUTO_ASSIGN_THIRD_PARTY")) reprocessSlotsOnNextReport();
         if (spoolmanUrl() !== previousUrl) restartSpoolmanConnection();
         // A spool nobody touches never has its slot processed again, so the
-        // locations already written have to be rewritten here. Not awaited: it
-        // is one Spoolman round trip per loaded slot, and the save does not
-        // depend on it.
-        if (result.changed.includes("LOCATION_FORMAT")) {
+        // locations of the loaded spools have to be written here, both when the
+        // setting is switched on and when the template changes. Switching on
+        // writes every loaded slot, which covers a template changed in the same
+        // save. Not awaited: it is one Spoolman round trip per loaded slot, and
+        // the save does not depend on it.
+        const locationSwitchedOn = result.changed.includes("SET_LOCATION") && settings.SET_LOCATION;
+        if (locationSwitchedOn || result.changed.includes("LOCATION_FORMAT")) {
             for (const printer of printers) {
-                reformatPrinterLocations(printer, previousLocationFormat).catch(err =>
-                    console.error(printer.name, printer.logFilePath, "Could not rewrite the locations:", err?.message));
+                const write = locationSwitchedOn
+                    ? claimPrinterLocations(printer)
+                    : reformatPrinterLocations(printer, previousLocationFormat);
+                write.catch(err =>
+                    console.error(printer.name, printer.logFilePath, "Could not write the locations:", err?.message));
             }
         }
 

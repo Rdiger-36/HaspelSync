@@ -7,7 +7,7 @@ The documentation of **HaspelSync**. It belongs to the version it sits in: this 
 | [Installation](installation.md) | Prerequisites, supported architectures, `docker run` and Docker Compose, first start |
 | [How it works](how-it-works.md) | Merging and creating in Spoolman, G-code tracking, operation modes, slot names, archiving empty spools |
 | [Web UI](web-ui.md) | Dashboard, assigning a spool to a slot, the spool and filament dialog, menu and logs |
-| [Settings](settings.md) | Every card of the settings page, the printer dialog, the service actions, a printer that is switched off |
+| [Settings](settings.md) | Every card of the settings page, the printer dialog, the service actions, the Spoolman location, a printer that is switched off |
 | [API](api.md) | Who may call it, the API page in the Web UI, the OpenAPI document, and every route in a table |
 | [Troubleshooting](troubleshooting.md) | Reading the logs, the `debug-printers` CLI, diagnostics and what an export contains |
 | [Legacy mode](legacy-mode.md) | The RFID based tracking of 1.2.x and what it cannot do |

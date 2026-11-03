@@ -12,7 +12,7 @@ The page is split into sections, listed in a navigation card at the left; on a w
 | :---- | :---- |
 | **Printers** | Add, edit and remove printers, each with a connection test for MQTT and FTPS, and the **Printer connection** card: offline check interval, the backoff limit for a printer that stays offline and the retry limit |
 | **Spoolman** | Endpoint, plus host, port, subfolder and public URL in a collapsed section. The line under the field says which URL the service actually talks to |
-| **Tracking** | Operation mode, whether a [3rd party spool is assigned automatically](web-ui.md), **Clear print result after**, the minutes a finished print stays on the dashboard before the card returns to idle (ten by default, 0 keeps the result until it is cleared by hand), and [legacy mode](legacy-mode.md). Below it the **Synchronisation** card: slot update interval, writing the slot as the spool location, with the template it is written in (**Location format**, `{printer} - {slot}` by default; `{printer}` is required, `{unit}` names the AMS unit and `{number}` the position in it, so `{printer} AMS {unit}` gives the four spools of a unit one location), never merging a tagged spool, [archiving empty spools](how-it-works.md#archiving-empty-spools) |
+| **Tracking** | Operation mode, whether a [3rd party spool is assigned automatically](web-ui.md), **Clear print result after**, the minutes a finished print stays on the dashboard before the card returns to idle (ten by default, 0 keeps the result until it is cleared by hand), and [legacy mode](legacy-mode.md). Below it the **Synchronisation** card: slot update interval, writing the slot as the spool location, with the template it is written in ([**Location format**](#the-spoolman-location)), never merging a tagged spool, [archiving empty spools](how-it-works.md#archiving-empty-spools) |
 | **Logging** | Log file size and how many rotated files are kept, for the server and per printer, plus **Log detail...**: the [log level, the areas and the raw MQTT capture](troubleshooting.md#how-much-gets-logged). The same dialog per printer, **Log** in the Printers card, also [exports that printer's logs](troubleshooting.md#diagnostics-and-privacy) |
 | **Access** | The Web UI password, the host names this service may be addressed under, and the API keys for callers that have no browser. All three are empty by default: without a password the Web UI is open to the network, and IP addresses, `localhost` and `.local` names are accepted whatever the host list says |
 | **Web UI** | The language and the theme of the pages. Choices of this browser rather than of the installation: they apply at once, are kept in the browser and never reach `settings.json`, so two people on two phones can read the same installation in two languages |
@@ -83,6 +83,32 @@ Setting a password does not touch the keys. Every browser session ends, every ke
 
 > [!NOTE]
 > The key travels in a header on purpose, never in the URL. A URL ends up in the log of every proxy in front of this service, and a value a browser can put in a URL is one a page on another site could put there too. A header cannot be set on a cross site request without a preflight, which the request guard refuses, so a key cannot be used against you by a page you happen to have open.
+
+## The Spoolman location
+
+With **Write slot as location** on, every spool in a slot gets the slot as its location in Spoolman, and gives it back when it leaves. Switching it on writes the spools that are already loaded straight away.
+
+**Location format**, in the advanced part of the Synchronisation card, decides what that location reads. It is a template with four placeholders:
+
+| Placeholder | Becomes | For `A3` | For `HT-A` | For `External` |
+| :---- | :---- | :---- | :---- | :---- |
+| `{printer}` | the printer name, required | `Office` | `Office` | `Office` |
+| `{unit}` | the AMS unit | `A` | `HT-A` | `External` |
+| `{number}` | the position in the unit, `1` for a unit with a single slot | `3` | `1` | `1` |
+| `{slot}` | the [slot name](how-it-works.md#slot-names) | `A3` | `HT-A` | `External` |
+
+Everything else in the template is written as it is. A few examples for a printer named `Office`:
+
+| Template | `A3` becomes |
+| :---- | :---- |
+| `{printer} - {slot}` (the default) | `Office - A3` |
+| `{printer} AMS {unit}` | `Office AMS A`, the same for all four spools of the unit |
+| `{printer} AMS {unit} Slot {number}` | `Office AMS A Slot 3` |
+| `{printer}` | `Office` |
+
+`{printer}` is required because it is how the service tells its own locations apart: a location is only cleared or rewritten when it fits the template with this printer's name in it, so a location set by hand ("Shelf A") and the locations of another printer stay untouched. A location written with the default template counts as well, whatever the template says now, so a spool taken out after the template was changed still gives back the location it got before.
+
+Saving a new template rewrites the locations of the spools that are loaded at once. The create spool dialog suggests the location from the same template.
 
 ## A printer that is switched off
 

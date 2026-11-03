@@ -555,6 +555,8 @@ I18N.register("en", "English", {
     "settings.field.EMPTY_SPOOL_THRESHOLD.label": "Empty threshold",
     "settings.field.LEGACY_MODE.description": "Derives the spool weight from the AMS RFID remain percentage instead of tracking consumption from the sliced G-code. Disables 3rd party spool support and manual assignments.",
     "settings.field.LEGACY_MODE.label": "Legacy mode",
+    "settings.field.LOCATION_FORMAT.description": "Template of the location written while the slot is stored as location. {printer} is replaced by the printer name and is required, {unit} by the AMS unit, for example A or HT-A, {number} by the position in it, for example 3, and {slot} by the slot, for example A3. \"{printer} AMS {unit}\" gives the four spools of a unit one location, \"{printer}\" alone stores the printer name.",
+    "settings.field.LOCATION_FORMAT.label": "Location format",
     "settings.field.LOG_CATEGORIES.description": "Which parts of the service write their debug and trace lines. Errors and the ordinary progress lines are never filtered, so switching an area off cannot hide a failure.",
     "settings.field.LOG_CATEGORIES.label": "Logged areas",
     "settings.field.LOG_CATEGORIES.option.ams": "ams",

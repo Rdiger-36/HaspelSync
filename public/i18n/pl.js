@@ -552,6 +552,8 @@ I18N.register("pl", "Polski", {
     "settings.field.EMPTY_SPOOL_THRESHOLD.label": "Próg pustej szpuli",
     "settings.field.LEGACY_MODE.description": "Wyznacza masę szpuli na podstawie procentowej ilości pozostałego filamentu odczytanej przez RFID w AMS, zamiast śledzić zużycie z pliku G-code. Wyłącza obsługę szpul innych producentów i ręczne przypisania.",
     "settings.field.LEGACY_MODE.label": "Tryb starszy",
+    "settings.field.LOCATION_FORMAT.description": "Szablon lokalizacji zapisywanej, gdy slot jest zapisywany jako lokalizacja. {printer} zostaje zastąpione nazwą drukarki i jest wymagane, {unit} jednostką AMS, np. A lub HT-A, {number} pozycją w niej, np. 3, a {slot} slotem, np. A3. \"{printer} AMS {unit}\" daje czterem szpulom jednej jednostki wspólną lokalizację, samo \"{printer}\" zapisuje tylko nazwę drukarki.",
+    "settings.field.LOCATION_FORMAT.label": "Format lokalizacji",
     "settings.field.LOG_CATEGORIES.description": "Części usługi, dla których zapisywane są wpisy debug i trace. Błędy i zwykłe komunikaty o postępie nigdy nie są filtrowane, więc wyłączenie obszaru nie ukryje awarii.",
     "settings.field.LOG_CATEGORIES.label": "Rejestrowane obszary",
     "settings.field.LOG_CATEGORIES.option.ams": "AMS",

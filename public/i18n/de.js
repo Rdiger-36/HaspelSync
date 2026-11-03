@@ -552,6 +552,8 @@ I18N.register("de", "Deutsch", {
     "settings.field.EMPTY_SPOOL_THRESHOLD.label": "Leerschwelle",
     "settings.field.LEGACY_MODE.description": "Berechnet das Spulengewicht aus dem RFID-Restwert des AMS, statt den Verbrauch aus dem G-Code der Slice-Datei zu erfassen. Spulen von Drittanbietern und manuelle Zuordnungen werden dann nicht unterstützt.",
     "settings.field.LEGACY_MODE.label": "Legacy-Modus",
+    "settings.field.LOCATION_FORMAT.description": "Vorlage für den Lagerort, solange der Slot als Lagerort geschrieben wird. {printer} wird durch den Druckernamen ersetzt und ist Pflicht, {unit} durch die AMS-Einheit, zum Beispiel A oder HT-A, {number} durch die Position darin, zum Beispiel 3, und {slot} durch den Slot, zum Beispiel A3. \"{printer} AMS {unit}\" gibt den vier Spulen einer Einheit einen gemeinsamen Lagerort, \"{printer}\" allein speichert nur den Druckernamen.",
+    "settings.field.LOCATION_FORMAT.label": "Format des Lagerorts",
     "settings.field.LOG_CATEGORIES.description": "Welche Bereiche des Dienstes Debug- und Trace-Zeilen schreiben. Fehler und die normalen Fortschrittszeilen werden nie gefiltert, ein abgeschalteter Bereich kann also keinen Fehler verstecken.",
     "settings.field.LOG_CATEGORIES.label": "Protokollierte Bereiche",
     "settings.field.LOG_CATEGORIES.option.ams": "AMS",

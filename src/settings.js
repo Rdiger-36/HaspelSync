@@ -2,6 +2,7 @@ import fs from "fs-extra";
 import path from "path";
 import { settingsPath, envSeed, supervised } from "./config.js";
 import { hashPassword, isPasswordHash } from "./passwords.js";
+import { DEFAULT_LOCATION_FORMAT } from "../public/shared.js";
 
 /**
  * Runtime configuration, persisted to `printers/settings.json`.
@@ -139,6 +140,14 @@ export const SETTINGS_SCHEMA = {
         group: "sync",
         label: "Write slot as location",
         description: "Stores printer name and slot of the loaded spool as its location in Spoolman.",
+    },
+    LOCATION_FORMAT: {
+        type: "string",
+        default: DEFAULT_LOCATION_FORMAT,
+        group: "sync",
+        advanced: true,
+        label: "Location format",
+        description: "Template of the location written while the slot is stored as location. {printer} is replaced by the printer name and is required, {unit} by the AMS unit, for example A or HT-A, {number} by the position in it, for example 3, and {slot} by the slot, for example A3. \"{printer} AMS {unit}\" gives the four spools of a unit one location, \"{printer}\" alone stores the printer name.",
     },
     ARCHIVE_EMPTY_SPOOLS: {
         type: "boolean",
@@ -341,6 +350,12 @@ export function coerceSetting(key, raw) {
 
     if (field.type === "string") {
         const value = String(raw).trim();
+        // Without the printer in it a location cannot be told from one typed
+        // by hand or from another printer's, and the service would clear and
+        // rewrite locations it never wrote. See `matchesLocationFormat()`.
+        if (key === "LOCATION_FORMAT" && value !== "" && !value.includes("{printer}")) {
+            return { error: "LOCATION_FORMAT must contain {printer}" };
+        }
         return { value: value === "" ? null : value };
     }
 

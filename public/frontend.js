@@ -13,6 +13,7 @@ import {
     humanLayers,
     normColor,
     slotColors,
+    slotLocation,
     spoolWeightLimit,
 } from "./shared.js";
 import { bambuProfile, materialsAgree, presetVendor, slotMaterial, slotPreset } from "./materials.js";
@@ -29,8 +30,10 @@ let spoolmanConnected = false;
 // Render context of the last full legacy-table render, reused for single-row
 // SSE updates (see upsertSpoolRow).
 let lastLegacyCtx = null;
-// Printer name, used to suggest a location matching the SET_LOCATION format.
+// Printer name and LOCATION_FORMAT, used to suggest the location this service
+// would write for the slot.
 let currentPrinterName = "";
+let locationFormat = null;
 // gcode_state of the shown printer, mirrored from /api/status and kept fresh by
 // the G-code view, which reads it again from /api/print.
 let printerGcodeState = "IDLE";
@@ -1397,7 +1400,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </label>
                 <label class="sp-field">
                     <span>${escapeHtml(t("dashboard.create.location"))}</span>
-                    <input id="sp-location" list="sp-locations" autocomplete="off" value="${escapeHtml(currentPrinterName ? `${currentPrinterName} - ${amsSpool.amsId}` : "")}">
+                    <input id="sp-location" list="sp-locations" autocomplete="off" value="${escapeHtml(currentPrinterName ? slotLocation(locationFormat, currentPrinterName, amsSpool.amsId) : "")}">
                     <datalist id="sp-locations">${(lookups.locations || []).map(l => `<option value="${escapeHtml(l)}">`).join("")}</datalist>
                 </label>
                 <label class="sp-field sp-wide">
@@ -3564,6 +3567,7 @@ document.addEventListener("DOMContentLoaded", () => {
         updateElementText("last-mqtt-update", data.lastMqttUpdate);
         updateElementText("last-mqtt-ams-update", data.lastMqttAmsUpdate);
         currentPrinterName = data.printerName || "";
+        locationFormat = data.locationFormat ?? null;
         // The headline names the printer and is the picker over the others, so
         // it is written by menu.js rather than here. This only says which
         // printer the dashboard settled on, which it decides itself on the

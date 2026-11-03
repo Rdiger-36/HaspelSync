@@ -18,6 +18,8 @@ Because the numbers come from the slicer and not from the RFID chip, this works 
 
 The link is dropped automatically as soon as a different filament is detected in that slot. It also resolves the rare case of two loaded spools that are identical in material and colour, which the RFID tag alone cannot tell apart.
 
+A spool taken out of its slot keeps the link, so one that comes back from the dryer is the same spool as before. The exception is a spool that runs out during a print while the AMS carries on from a backup slot of the same filament (auto refill): its link is released when the print ends, so the next spool put into that slot is not booked on the empty one. The print is split between the two spools at the layer the AMS switched. When Spoolman still lists weight on the spool that ran out, usually because its starting weight was too high, the print report says so and offers to set it to 0 g or to archive it.
+
 Two things follow from booking per print rather than per report:
 
 - **A slot needs a link before its consumption can be booked**, either the tag of a Bambu Lab spool or a manual assignment. A filament the print uses from a slot that has neither is named in the log and skipped, so it is visible which spool is missing its link rather than silently going untracked.

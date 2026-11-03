@@ -2661,8 +2661,7 @@ document.addEventListener("DOMContentLoaded", () => {
             button.onclick = () => showLookupHelpDialog(button.dataset.lookupHelp, printData.sliceFetch?.reason || null);
         }
 
-        const summaryButton = card.querySelector("[data-print-summary]");
-        if (summaryButton) {
+        for (const summaryButton of card.querySelectorAll("[data-print-summary]")) {
             summaryButton.onclick = () => showPrintSummaryDialog(printData.lastPrintSummary);
         }
 
@@ -2788,11 +2787,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     : booked === 0
                         ? { text: `✖ ${t("dashboard.result.nothingBooked")}`, className: "gc-card-unbooked", title: t("dashboard.result.nothingBookedTitle") }
                         : { text: `✔ ${t("dashboard.result.partlyBooked", { booked, count: rows.length })}`, className: "gc-card-partly", title: t("dashboard.result.partlyBookedTitle") };
-            return `<button class="gc-card-link ${label.className}" data-print-summary title="${escapeHtml(label.title)}">${escapeHtml(label.text)}</button>${countdown}`;
+            return `<button class="gc-card-link ${label.className}" data-print-summary title="${escapeHtml(label.title)}">${escapeHtml(label.text)}</button>${ranOutLink(summary)}${countdown}`;
         }
 
         if (hasSummary && printData.printResultCleared) {
-            return `<button class="gc-card-link" data-print-summary>${escapeHtml(t("dashboard.summary.lastPrint"))}</button>`;
+            return `<button class="gc-card-link" data-print-summary>${escapeHtml(t("dashboard.summary.lastPrint"))}</button>${ranOutLink(printData.lastPrintSummary)}`;
         }
 
         return "";
@@ -2900,6 +2899,25 @@ document.addEventListener("DOMContentLoaded", () => {
      * Spoolman record the booking wrote; anything else falls back to what the
      * sliced file knew, which is a material and a hex code.
      */
+    /**
+     * The spools of a report a refill ran empty that still wait for a
+     * correction, see ranOutSpools() in src/mqtt.js.
+     */
+    function openRanOut(summary) {
+        return (summary?.ranOut || []).filter(entry => !entry.archived && entry.remainingWeight > 0);
+    }
+
+    /**
+     * A second link to the report on the print card while a spool there waits
+     * for its correction. Kept after the card returns to idle, because the
+     * correction is still open then.
+     */
+    function ranOutLink(summary) {
+        const count = openRanOut(summary).length;
+        if (!count) return "";
+        return `<button class="gc-card-link gc-card-partly" data-print-summary>⚠ ${escapeHtml(t("dashboard.result.ranOut", { count }))}</button>`;
+    }
+
     function summaryFilamentName(row) {
         const named = [row.vendor, row.material, row.spoolName].filter(Boolean);
         if (named.length) return named.join(" · ");
@@ -3059,7 +3077,40 @@ document.addEventListener("DOMContentLoaded", () => {
             html += `<p class="gc-required">${escapeHtml(t("dashboard.summary.nothingBooked"))}</p>`;
         }
 
+        html += openRanOut(summary).map(entry => `<div class="gc-ranout" data-ran-out="${entry.spoolId}">
+            <p><span class="gc-warn">⚠</span> ${escapeHtml(t("dashboard.summary.ranOut", {
+                id: entry.spoolId,
+                name: summaryFilamentName(entry),
+                slot: entry.amsId,
+                weight: Math.round(entry.remainingWeight * 10) / 10,
+            }))}${entry.assignmentReleased ? ` ${escapeHtml(t("dashboard.summary.ranOutReleased", { slot: entry.amsId }))}` : ""}</p>
+            <p class="gc-ranout-actions">
+                <button type="button" class="btn btn-small" data-ran-out-action="empty">${escapeHtml(t("dashboard.summary.setEmpty"))}</button>
+                <button type="button" class="btn btn-small" data-ran-out-action="archive">${escapeHtml(t("dashboard.summary.archive"))}</button>
+            </p>
+        </div>`).join("");
+
         content.innerHTML = html;
+        for (const block of content.querySelectorAll("[data-ran-out]")) {
+            const entry = summary.ranOut.find(e => e.spoolId === Number(block.dataset.ranOut));
+            const actions = block.querySelector(".gc-ranout-actions");
+            for (const button of block.querySelectorAll("[data-ran-out-action]")) {
+                button.addEventListener("click", async () => {
+                    const archive = button.dataset.ranOutAction === "archive";
+                    for (const b of actions.querySelectorAll("button")) b.disabled = true;
+                    try {
+                        const spool = await sendJson(`./api/spoolman/spool/${entry.spoolId}`, "PATCH", archive ? { archived: true } : { remainingWeight: 0 });
+                        // The server follows the spool in its copy of the
+                        // report too, this keeps the open dialog in step
+                        entry.remainingWeight = spool.remaining_weight ?? 0;
+                        entry.archived = !!spool.archived;
+                        actions.textContent = t(archive ? "dashboard.summary.archiveDone" : "dashboard.summary.setEmptyDone");
+                    } catch (err) {
+                        actions.textContent = t("dashboard.summary.ranOutFailed", { message: err.message });
+                    }
+                });
+            }
+        }
         for (const choose of content.querySelectorAll("[data-choose-filament]")) {
             const row = summary.rows.find(r => r.index === Number(choose.dataset.chooseFilament) && r.status === "pending");
             choose.addEventListener("click", () => {

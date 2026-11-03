@@ -20,7 +20,7 @@ import {
     logSpoolmanFailure,
 } from "./spoolman.js";
 import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
-import { getMapping, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
+import { getMapping, getMappings, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
 import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, rememberFilamentSpools, recallFilamentSpools } from "./printstate.js";
 import { uniqueSpoolForSlot } from "../public/match.js";
@@ -965,7 +965,89 @@ export async function handlePrintStateChange(printer, print) {
         const outcome = await bookConsumption(printer, consumption, newState);
         summary.rows = outcome.rows;
         summary.note = outcome.note;
+        summary.ranOut = ranOutSpools(summary.rows);
+        const released = releaseRefilledAssignments(printer);
+        for (const entry of summary.ranOut) entry.assignmentReleased = released.includes(entry.amsId);
     }
+}
+
+/**
+ * The spools a print ran empty, for the report to offer a correction.
+ *
+ * A refill is the one moment the service knows for certain that a spool is
+ * empty: the AMS saw its end pass the sensor, and the filament still in the
+ * tube is part of the booking. Whatever Spoolman still lists on it afterwards
+ * is a start weight that was too high (issue #225, 20 g on a spool that was
+ * gone). The weight is not set to zero here, which would book filament that
+ * was never printed; the user decides, and the report asks.
+ *
+ * Only a booked part before a refill counts, one entry per spool. A spool the
+ * booking archived as empty, or one Spoolman already lists at zero, is left
+ * out.
+ *
+ * @param {object[]} rows - the summary rows of the booking
+ * @returns {object[]} `{ spoolId, amsId, vendor, material, spoolName, color, colors, remainingWeight, archived }`,
+ *   the caller adds `assignmentReleased`
+ */
+export function ranOutSpools(rows) {
+    const spools = new Map();
+    for (const row of rows || []) {
+        if (!row.refill?.before || row.status !== "booked" || !row.spoolId) continue;
+        if (row.archived || !(row.remainingWeight > 0)) continue;
+        spools.set(row.spoolId, {
+            spoolId: row.spoolId,
+            amsId: row.amsId,
+            vendor: row.vendor,
+            material: row.material,
+            spoolName: row.spoolName,
+            color: row.color,
+            colors: row.colors,
+            remainingWeight: row.remainingWeight,
+            archived: false,
+        });
+    }
+    return [...spools.values()];
+}
+
+/**
+ * The slots whose assignment a print's refills leave behind on an empty spool.
+ *
+ * An assignment survives a slot going empty on purpose: a spool taken out to
+ * be dried comes back as the same spool. After a refill it does not, and the
+ * next spool of the same filament put into that slot matches the stored
+ * fingerprint and would be booked on the empty one. Only an assignment that
+ * still names the spool the refill ran empty is released; one the user moved
+ * on to another spool during the print is theirs.
+ *
+ * @param {{from: string}[]} refills - the refills of the print
+ * @param {object} slotSpools - the spool last seen in each slot, `printer.printSlotSpools`
+ * @param {object} mappings - the printer's assignments, keyed by slot
+ * @returns {string[]} the slots to release
+ */
+export function assignmentsLeftOnEmptySpools(refills, slotSpools, mappings) {
+    const slots = new Set();
+    for (const refill of refills || []) {
+        const spoolId = slotSpools?.[refill.from]?.id;
+        if (spoolId && mappings?.[refill.from]?.spoolId === spoolId) slots.add(refill.from);
+    }
+    return [...slots];
+}
+
+/**
+ * Releases the assignments `assignmentsLeftOnEmptySpools()` names.
+ *
+ * @returns {string[]} the slots that were released
+ */
+function releaseRefilledAssignments(printer) {
+    const slots = assignmentsLeftOnEmptySpools(printer.refills, printer.printSlotSpools, getMappings(printer.id));
+    for (const amsId of slots) {
+        const spoolId = printer.printSlotSpools[amsId].id;
+        clearMapping(printer.id, amsId);
+        console.log(printer.name, printer.logFilePath, `[Mapping] ${amsId} released from spool ${spoolId}: it ran out during this print, so the next spool put into ${amsId} is not booked on it`);
+    }
+    // The dashboard shows the assignment until the slot is processed again
+    if (slots.length) printer.lastAmsData = null;
+    return slots;
 }
 
 /**
@@ -1600,7 +1682,8 @@ async function bookFilamentOnSpool(printer, info, spoolId, { mapped, ambiguous =
             mapped,
             remainingWeight: booked?.remaining_weight ?? null,
         };
-        await archiveWhenEmpty(printer, booked);
+        // Read by ranOutSpools(): an archived spool needs no correction
+        row.archived = await archiveWhenEmpty(printer, booked);
         return row;
     } catch (err) {
         console.error(printer.name, printer.logFilePath, `[Print] Failed to book consumption for spool ${spoolId}: ${err.message}`);

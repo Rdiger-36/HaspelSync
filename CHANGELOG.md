@@ -1,4 +1,10 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A spool that an AMS refill ran empty no longer keeps its slot's assignment. The assignment is what links a spool without an RFID tag to its slot, and it stayed after the spool ran out, so the next spool of the same filament put into that slot was booked on the empty one. It is released at the end of the print, and only after a refill: a spool taken out by hand, to be dried for example, keeps its slot as before (issue #225)
+      - The report of such a print says when Spoolman still lists weight on the spool that ran out, which happens when its starting weight was too high, and offers to set it to 0 g or to archive it. The print card links to it until that is done. The weight is not changed on its own, since that would book filament that was never printed (issue #225)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.7
    - New Features:
       - The Spoolman location written for a spool in a slot follows a template, "Location format" in the Synchronisation card. `{printer}` stands for the printer name and is required, `{unit}` for the AMS unit (`A`, `HT-A`), `{number}` for the position in it (`3`, and `1` for a unit with a single slot) and `{slot}` for the slot (`A3`). The default `{printer} - {slot}` writes what was written before, `{printer} AMS {unit}` gives the four spools of a unit one location, and `{printer}` alone stores the printer name. Changing the template rewrites the locations of the spools that are loaded, and a location written with the old default is still cleared when its spool is taken out. The create spool dialog suggests the location from the same template (issue #248)

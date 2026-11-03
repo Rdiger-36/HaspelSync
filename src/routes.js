@@ -1772,6 +1772,7 @@ function validateFilamentInput(filament) {
  * Spoolman on the monitor interval, so without this the dashboard would keep
  * showing the weight the spool had before the edit until that interval comes
  * round. The slot update goes out over SSE the same way a mapping change does.
+ * The spools the last print ran empty follow too, see `ranOutSpools()`.
  *
  * @param {object[]} printers - the printer list
  * @param {object} spool - the spool as Spoolman answered with it
@@ -1788,6 +1789,13 @@ function refreshCachedSpool(printers, spool) {
             // itself, and the next AMS update is up to two minutes away.
             uiSpool.archived = !!spool.archived;
             broadcastSlotUpdate(printer.id, uiSpool);
+        }
+        // The report offers to correct a spool a refill ran empty, and stops
+        // once it is corrected, whichever dialog did it
+        for (const entry of printer.lastPrintSummary?.ranOut || []) {
+            if (entry.spoolId !== spool.id) continue;
+            entry.remainingWeight = spool.remaining_weight ?? entry.remainingWeight;
+            entry.archived = !!spool.archived;
         }
     }
 }

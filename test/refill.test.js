@@ -16,7 +16,7 @@ import {
     splitAtRefills,
 } from "../src/gcode.js";
 import { matchConsumption, consumptionCandidate } from "../src/ams.js";
-import { refillNote, rememberedSlotCandidates } from "../src/mqtt.js";
+import { refillNote, rememberedSlotCandidates, ranOutSpools, assignmentsLeftOnEmptySpools } from "../src/mqtt.js";
 
 // An AMS refill traced on a P2S on 2026-10-07. "Würfel", 235 layers, 20.09 g
 // of PLA Basic white sliced as filament 3. A3 held a spool cut down to about
@@ -170,4 +170,61 @@ test("only an emptied slot the print was named for is remembered", () => {
     // A3 holds a spool again, which then answers for it
     assert.deepEqual(rememberedSlotCandidates(printer, [...live, candidate("A3", 7)]), []);
     assert.deepEqual(rememberedSlotCandidates({}, live), []);
+});
+
+// ---------------------------------------------------------------------------
+// The spool a refill ran empty (issue #225, chmac's follow-up)
+// ---------------------------------------------------------------------------
+
+const refillRow = (over = {}) => ({
+    index: 0, amsId: "A3", status: "booked", spoolId: 100, grams: 7.4,
+    refill: { before: true, from: "A3", to: "A4", layer: 88 },
+    vendor: "Generic", material: "PLA", spoolName: "Red", color: "#9D432C", colors: null,
+    remainingWeight: 20.1, archived: false,
+    ...over,
+});
+
+test("a spool a refill ran empty with weight left in Spoolman is offered for correction", () => {
+    const offered = ranOutSpools([
+        refillRow(),
+        refillRow({ amsId: "A4", spoolId: 101, grams: 12.7, refill: { before: false, from: "A3", to: "A4", layer: 88 }, remainingWeight: 987.3 }),
+    ]);
+    assert.deepEqual(offered.map(o => [o.spoolId, o.amsId, o.remainingWeight]), [[100, "A3", 20.1]]);
+});
+
+test("a spool that is already empty, archived or not booked is not offered", () => {
+    assert.deepEqual(ranOutSpools([refillRow({ remainingWeight: 0 })]), []);
+    assert.deepEqual(ranOutSpools([refillRow({ remainingWeight: -3 })]), []);
+    assert.deepEqual(ranOutSpools([refillRow({ remainingWeight: null })]), []);
+    assert.deepEqual(ranOutSpools([refillRow({ archived: true })]), []);
+    assert.deepEqual(ranOutSpools([refillRow({ status: "skipped", spoolId: null })]), []);
+    assert.deepEqual(ranOutSpools([refillRow({ refill: null })]), []);
+    assert.deepEqual(ranOutSpools(undefined), []);
+});
+
+test("a spool split over two refills is offered once", () => {
+    const offered = ranOutSpools([refillRow({ index: 0 }), refillRow({ index: 1, remainingWeight: 18 })]);
+    assert.equal(offered.length, 1);
+    assert.equal(offered[0].remainingWeight, 18);
+});
+
+test("the assignment of the slot a refill ran empty is released", () => {
+    const refills = [{ index: 0, from: "A3", to: "A4", layer: 88 }];
+    const slotSpools = { A3: { id: 100, amsId: "A3" }, A4: { id: 101, amsId: "A4" } };
+    assert.deepEqual(assignmentsLeftOnEmptySpools(refills, slotSpools, { A3: { spoolId: 100 }, A4: { spoolId: 101 } }), ["A3"]);
+});
+
+test("an assignment the user moved to another spool during the print is kept", () => {
+    const refills = [{ index: 0, from: "A3", to: "A4", layer: 88 }];
+    const slotSpools = { A3: { id: 100, amsId: "A3" } };
+    assert.deepEqual(assignmentsLeftOnEmptySpools(refills, slotSpools, { A3: { spoolId: 102 } }), []);
+});
+
+test("a slot linked by its tag has no assignment to release", () => {
+    // A Bambu Lab spool is found by its RFID tag, and a new one carries a new
+    // tag, so nothing is left behind for it
+    const refills = [{ index: 0, from: "A3", to: "A4", layer: 88 }];
+    assert.deepEqual(assignmentsLeftOnEmptySpools(refills, { A3: { id: 100, amsId: "A3" } }, {}), []);
+    assert.deepEqual(assignmentsLeftOnEmptySpools([], { A3: { id: 100 } }, { A3: { spoolId: 100 } }), []);
+    assert.deepEqual(assignmentsLeftOnEmptySpools(undefined, undefined, undefined), []);
 });

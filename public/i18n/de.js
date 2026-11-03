@@ -4,6 +4,14 @@
  */
 I18N.register("de", "Deutsch", {
     // Language names for the switch in the menu bar
+    "dashboard.result.ranOut": {"one":"{count} Spule leer gelaufen, siehe Bericht","other":"{count} Spulen leer gelaufen, siehe Bericht"},
+    "dashboard.summary.archive": "Archivieren",
+    "dashboard.summary.archiveDone": "Archiviert.",
+    "dashboard.summary.ranOut": "Spule #{id} ({name}, {slot}) ist während des Drucks leer gelaufen, Spoolman führt aber noch {weight} g darauf. Das Startgewicht war vermutlich zu hoch.",
+    "dashboard.summary.ranOutFailed": "Die Spule konnte nicht geändert werden: {message}",
+    "dashboard.summary.ranOutReleased": "Die Zuordnung von {slot} ist freigegeben, damit die nächste Spule in {slot} nicht auf diese gebucht wird.",
+    "dashboard.summary.setEmpty": "Auf 0 g setzen",
+    "dashboard.summary.setEmptyDone": "Auf 0 g gesetzt.",
     "language.en": "Englisch",
     "language.de": "Deutsch",
     "language.pl": "Polnisch",

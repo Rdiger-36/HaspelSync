@@ -429,6 +429,23 @@ h1 {
   max-width: 34ch;
 }
 
+/* A spool a refill ran empty that Spoolman still lists weight on, below the
+   report table, with the two corrections the user can pick from */
+.gc-ranout {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.gc-ranout p { margin: 0; }
+.gc-ranout .gc-ranout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.9em;
+}
+
 #print-summary-content { max-height: 60vh; overflow-y: auto; }
 
 /* Print state badge. Colors follow the .pill light/dark pairs above so the

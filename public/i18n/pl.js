@@ -3,6 +3,14 @@
  */
 I18N.register("pl", "Polski", {
     // Language names
+    "dashboard.result.ranOut": {"one":"{count} szpula się skończyła, zobacz raport","few":"{count} szpule się skończyły, zobacz raport","many":"{count} szpul się skończyło, zobacz raport","other":"{count} szpul się skończyło, zobacz raport"},
+    "dashboard.summary.archive": "Archiwizuj",
+    "dashboard.summary.archiveDone": "Zarchiwizowano.",
+    "dashboard.summary.ranOut": "Szpula #{id} ({name}, {slot}) skończyła się podczas tego wydruku, ale Spoolman wciąż podaje na niej {weight} g. Waga początkowa była prawdopodobnie za wysoka.",
+    "dashboard.summary.ranOutFailed": "Nie udało się zmienić szpuli: {message}",
+    "dashboard.summary.ranOutReleased": "Przypisanie {slot} zostało zwolnione, więc następna szpula w {slot} nie zostanie zaksięgowana na tę.",
+    "dashboard.summary.setEmpty": "Ustaw na 0 g",
+    "dashboard.summary.setEmptyDone": "Ustawiono na 0 g.",
     "language.en": "Angielski",
     "language.de": "Niemiecki",
     "language.pl": "Polski",

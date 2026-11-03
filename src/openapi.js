@@ -233,6 +233,7 @@ const schemas = {
         lastMqttAmsUpdate: t.nullable(t.string("When the slots were last processed, ISO 8601.")),
         PRINTER_ID: t.string("The serial number."),
         printerName: t.string(),
+        locationFormat: t.nullable(t.string("The `LOCATION_FORMAT` setting, the template a slot's Spoolman location is built from. Null while unset, which means `{printer} - {slot}`.")),
         MODE: t.string(null, { enum: ["automatic", "manual"] }),
         LEGACY_MODE: t.boolean("The tracking mode the process is running in, frozen at startup."),
         SPOOLMAN_URL: t.string("The Spoolman base URL the service talks to."),

@@ -44,6 +44,7 @@ const {
     createLocationSync,
     releasePrinterLocations,
     renamePrinterLocations,
+    reformatPrinterLocations,
 } = await import("../src/location.js");
 
 const printer = { id: "01P00A000000011", name: "Test Printer", logFilePath: null };
@@ -61,6 +62,7 @@ beforeEach(() => {
     patches.length = 0;
     spools.clear();
     settings.SET_LOCATION = true;
+    settings.LOCATION_FORMAT = "{printer} - {slot}";
     printer.name = "Test Printer";
     printer.spoolData = [];
 });
@@ -93,6 +95,85 @@ test("a location the user set by hand is not ours", () => {
 test("a location of a printer with a similar name is not ours", () => {
     assert.equal(ownsLocation("P1S - A1", "P1"), false);
     assert.equal(ownsLocation("P1 - A1", "P1S"), false);
+});
+
+// ---------------------------------------------------------------------------
+// The location format (issue #248)
+// ---------------------------------------------------------------------------
+
+test("the location follows the template", () => {
+    settings.LOCATION_FORMAT = "{printer}";
+    assert.equal(slotLocation("X1C", "A1"), "X1C");
+    settings.LOCATION_FORMAT = "AMS {slot} ({printer})";
+    assert.equal(slotLocation("X1C", "HT-A"), "AMS HT-A (X1C)");
+});
+
+test("a template without the printer falls back to the default", () => {
+    // Only a hand edited settings file gets here, the settings API refuses it.
+    settings.LOCATION_FORMAT = "{slot}";
+    assert.equal(slotLocation("X1C", "A1"), "X1C - A1");
+    settings.LOCATION_FORMAT = null;
+    assert.equal(slotLocation("X1C", "A1"), "X1C - A1");
+});
+
+test("a location written with the current template is ours", () => {
+    settings.LOCATION_FORMAT = "{printer}";
+    assert.equal(ownsLocation("X1C", "X1C"), true);
+    assert.equal(ownsLocation("X1C 2", "X1C"), false);
+    settings.LOCATION_FORMAT = "AMS {slot} ({printer})";
+    assert.equal(ownsLocation("AMS External-2 (X1C)", "X1C"), true);
+    assert.equal(ownsLocation("AMS A1 (X1C2)", "X1C"), false);
+});
+
+test("a location written with the old default stays ours after the template changed", () => {
+    settings.LOCATION_FORMAT = "{printer}";
+    assert.equal(ownsLocation("X1C - A1", "X1C"), true);
+});
+
+test("the slot wildcard does not reach into another printer's name", () => {
+    settings.LOCATION_FORMAT = "{printer} {slot}";
+    assert.equal(ownsLocation("X 2 A1", "X"), false);
+    assert.equal(ownsLocation("X A1", "X"), true);
+});
+
+test("characters of the template that mean something to a regex are taken literally", () => {
+    settings.LOCATION_FORMAT = "[{printer}].{slot}";
+    assert.equal(ownsLocation("[P1S].A1", "P1S"), true);
+    assert.equal(ownsLocation("[P1S]xA1", "P1S"), false);
+});
+
+test("a new template rewrites the locations this service had written", async () => {
+    seed(1, "Test Printer - A1");
+    seed(2, "Shelf A");
+    printer.spoolData = [
+        { amsId: "A1", connectedViaTag: true, existingSpool: { id: 1 } },
+        { amsId: "A2", connectedViaTag: true, existingSpool: { id: 2 } },
+    ];
+    settings.LOCATION_FORMAT = "{printer}";
+
+    await reformatPrinterLocations(printer, "{printer} - {slot}");
+
+    assert.deepEqual(patches, [{ id: 1, payload: { location: "Test Printer" } }]);
+});
+
+test("a new template writes nothing while the setting is off", async () => {
+    seed(1, "Test Printer - A1");
+    printer.spoolData = [{ amsId: "A1", connectedViaTag: true, existingSpool: { id: 1 } }];
+    settings.SET_LOCATION = false;
+    settings.LOCATION_FORMAT = "{printer}";
+
+    await reformatPrinterLocations(printer, "{printer} - {slot}");
+
+    assert.deepEqual(patches, []);
+});
+
+test("a spool without its slot is released under the new template", async () => {
+    settings.LOCATION_FORMAT = "{printer}";
+    const spool = seed(1, "Test Printer");
+
+    await releaseSlotLocation(printer, spool);
+
+    assert.deepEqual(patches, [{ id: 1, payload: { location: "" } }]);
 });
 
 // ---------------------------------------------------------------------------

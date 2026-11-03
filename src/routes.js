@@ -46,6 +46,7 @@ import {
     releaseSlotLocation,
     releasePrinterLocations,
     renamePrinterLocations,
+    reformatPrinterLocations,
     slotLocation,
 } from "./location.js";
 
@@ -306,6 +307,9 @@ export function registerRoutes(app, printers) {
             lastMqttAmsUpdate: printer.lastMqttAmsUpdate,
             PRINTER_ID: printer.id,
             printerName: printer.name,
+            // The create spool dialog suggests the location this service would
+            // write, built from the same template with `slotLocation()`.
+            locationFormat: settings.LOCATION_FORMAT,
             MODE: settings.MODE,
             LEGACY_MODE: legacyMode(),
             SPOOLMAN_URL: spoolmanUrl(),
@@ -1243,6 +1247,7 @@ export function registerRoutes(app, printers) {
 
     app.put("/api/settings", (req, res) => {
         const previousUrl = spoolmanUrl();
+        const previousLocationFormat = settings.LOCATION_FORMAT;
 
         // Two accepted shapes: the bare field map, and the same map wrapped with
         // the revision the caller read, which is what the settings page sends so
@@ -1280,6 +1285,16 @@ export function registerRoutes(app, printers) {
         // already loaded, not only the next spool that moves.
         if (result.changed.includes("AUTO_ASSIGN_THIRD_PARTY")) reprocessSlotsOnNextReport();
         if (spoolmanUrl() !== previousUrl) restartSpoolmanConnection();
+        // A spool nobody touches never has its slot processed again, so the
+        // locations already written have to be rewritten here. Not awaited: it
+        // is one Spoolman round trip per loaded slot, and the save does not
+        // depend on it.
+        if (result.changed.includes("LOCATION_FORMAT")) {
+            for (const printer of printers) {
+                reformatPrinterLocations(printer, previousLocationFormat).catch(err =>
+                    console.error(printer.name, printer.logFilePath, "Could not rewrite the locations:", err?.message));
+            }
+        }
 
         const view = getSettingsView();
         broadcastSSE({ type: "settings_update", values: view.values });

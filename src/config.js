@@ -77,6 +77,7 @@ export const envSeed = {
     MAX_RETRIES: process.env.MAX_RETRIES,
     NEVER_MERGE_IF_TAG: process.env.NEVER_MERGE_IF_TAG,
     SET_LOCATION: process.env.SET_LOCATION,
+    LOCATION_FORMAT: process.env.LOCATION_FORMAT,
     ARCHIVE_EMPTY_SPOOLS: process.env.ARCHIVE_EMPTY_SPOOLS,
     EMPTY_SPOOL_THRESHOLD: process.env.EMPTY_SPOOL_THRESHOLD,
     // DEBUG was the switch before the level ladder existed. It still seeds an

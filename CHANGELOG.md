@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - New Features:
+      - The Spoolman location written for a spool in a slot follows a template, "Location format" in the Synchronisation card. `{printer}` stands for the printer name and is required, `{slot}` for the slot. The default `{printer} - {slot}` writes what was written before, and `{printer}` alone stores the printer name without the slot. Changing the template rewrites the locations of the spools that are loaded, and a location written with the old default is still cleared when its spool is taken out. The create spool dialog suggests the location from the same template. Can be seeded with `LOCATION_FORMAT` (issue #248)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.6
    - Fixes:
       - The image is built on Node.js 22.23.4, which fixes Node2Shell (CVE-2026-111497): the Brotli decoder bundled with Node.js could be made to run code by a crafted compressed request body. Images up to 1.3.5 were built before the fix and should be replaced

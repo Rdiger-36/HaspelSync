@@ -157,3 +157,10 @@ test("every setting of the schema can be seeded from the environment", async () 
     const extra = Object.keys(envSeed).filter(key => !(key in SETTINGS_SCHEMA));
     assert.deepEqual(extra, []);
 });
+
+test("a location format without the printer is refused", () => {
+    assert.ok(coerceSetting("LOCATION_FORMAT", "{slot}").error);
+    assert.equal(coerceSetting("LOCATION_FORMAT", "{printer}").value, "{printer}");
+    assert.equal(coerceSetting("LOCATION_FORMAT", " {printer} - {slot} ").value, "{printer} - {slot}");
+    assert.equal(coerceSetting("LOCATION_FORMAT", "").value, null);
+});

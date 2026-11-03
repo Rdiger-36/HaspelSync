@@ -369,6 +369,65 @@ export function externalSlotLabel(unitId) {
 }
 
 /**
+ * The Spoolman location written for a spool in a slot, and the template it is
+ * built from.
+ *
+ * `{printer}` is required: it is what tells the locations of one printer from
+ * those of another and from the ones a user typed by hand, so a template
+ * without it would let the service clear or rewrite locations it never wrote.
+ * The settings validation refuses such a template, and one that slipped past it
+ * (a hand edited settings file) falls back to the default here.
+ */
+export const DEFAULT_LOCATION_FORMAT = "{printer} - {slot}";
+
+/** The template to build locations from, the default when `format` is unusable. */
+export function effectiveLocationFormat(format) {
+    return typeof format === "string" && format.includes("{printer}") ? format : DEFAULT_LOCATION_FORMAT;
+}
+
+/**
+ * The location of a spool in `slot` of `printerName`, built from `format`.
+ *
+ * The server writes this string and the create spool dialog suggests it, so
+ * both have to build it here.
+ *
+ * @param {string|null} format - the LOCATION_FORMAT setting
+ * @param {string} printerName - the printer's display name
+ * @param {string} slot - slot label, e.g. "A1", "HT-A" or "External"
+ * @returns {string} the location
+ */
+export function slotLocation(format, printerName, slot) {
+    return effectiveLocationFormat(format)
+        .replaceAll("{printer}", printerName)
+        .replaceAll("{slot}", slot);
+}
+
+/**
+ * Whether `location` could have been built from `format` for this printer.
+ *
+ * The slot is a wildcard, so a spool moved from A1 to A2 still carries a
+ * location that is ours until the new slot is written. It only matches what a
+ * slot label consists of (letters, digits and the hyphen of `HT-A` and
+ * `External-2`), never a space, so `X 2 A1` is not a location of printer `X`
+ * under `{printer} {slot}`, and a name that merely starts like this printer's
+ * does not match either: the whole string has to fit.
+ *
+ * @param {string|null|undefined} location - the spool's current location
+ * @param {string|null} format - the template it would have been written with
+ * @param {string} printerName - the printer's display name
+ * @returns {boolean}
+ */
+export function matchesLocationFormat(location, format, printerName) {
+    if (!location || !printerName) return false;
+    const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = effectiveLocationFormat(format)
+        .split(/(\{printer\}|\{slot\})/)
+        .map(part => part === "{printer}" ? escape(printerName) : part === "{slot}" ? "[A-Za-z0-9-]+" : escape(part))
+        .join("");
+    return new RegExp(`^${pattern}$`).test(location);
+}
+
+/**
  * The print states in which a job is in flight.
  *
  * Its consumption is booked only when it ends, so both sides have to know them:

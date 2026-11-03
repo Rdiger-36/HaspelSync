@@ -1,20 +1,21 @@
 import { settings } from "./settings.js";
 import { patchSpoolLocation, getSpoolmanSpool } from "./spoolman.js";
+import { DEFAULT_LOCATION_FORMAT, matchesLocationFormat, slotLocation as buildSlotLocation } from "../public/shared.js";
 
 /**
  * The Spoolman location of a spool sitting in an AMS slot.
  *
  * Everything that writes a location goes through this, so the string the
  * service writes and the one the "new spool" dialog suggests cannot drift
- * apart. The dialog builds the same `${printer} - ${slot}` in
- * `public/frontend.js`.
+ * apart. Both build it with `slotLocation()` from `public/shared.js`, from the
+ * `LOCATION_FORMAT` setting.
  *
  * @param {string} printerName - the printer's display name
  * @param {string} amsId - slot label, e.g. "A1", "HT-A" or "External"
  * @returns {string} the location to store in Spoolman
  */
 export function slotLocation(printerName, amsId) {
-    return `${printerName} - ${amsId}`;
+    return buildSlotLocation(settings.LOCATION_FORMAT, printerName, amsId);
 }
 
 /**
@@ -23,18 +24,25 @@ export function slotLocation(printerName, amsId) {
  * The clearing paths used to patch an empty string onto any spool that left a
  * slot, which wiped locations the user had set by hand ("Shelf A") for no
  * reason other than the spool having been in an AMS once. A location is only
- * ours to clear when it names this printer, so anything else survives.
+ * ours to clear when it fits the template with this printer's name in it, so
+ * anything else survives.
  *
  * The slot part is not checked: a spool moved from A1 to A2 carries
  * `Printer - A1` until the new slot is written, and that is still ours.
  *
+ * The default template counts as well, whatever the setting says. It was the
+ * only format before the setting existed, so every installation carries
+ * locations written with it, and a spool taken out after the template was
+ * changed would otherwise keep its old location for good.
+ *
  * @param {string|null|undefined} location - the spool's current location
  * @param {string} printerName - the printer whose slot released the spool
+ * @param {string|null} [format] - the template to test, the current one by default
  * @returns {boolean} whether the location may be cleared
  */
-export function ownsLocation(location, printerName) {
-    if (!location || !printerName) return false;
-    return location.startsWith(`${printerName} - `);
+export function ownsLocation(location, printerName, format = settings.LOCATION_FORMAT) {
+    return matchesLocationFormat(location, format, printerName)
+        || matchesLocationFormat(location, DEFAULT_LOCATION_FORMAT, printerName);
 }
 
 /**
@@ -213,6 +221,26 @@ export async function renamePrinterLocations(printer, previousName) {
 
     for (const { amsId, spool } of await occupiedSlots(printer)) {
         if (!ownsLocation(spool?.location, previousName)) continue;
+        await claimSlotLocation(printer, amsId, spool);
+    }
+}
+
+/**
+ * Rewrites the locations of this printer's spools after the template changed.
+ *
+ * Without this a spool sitting in a slot keeps the old string until something
+ * about its slot changes, which on a shelf of spools nobody touches can be
+ * never. Only a location this service wrote with the previous template is
+ * rewritten; one the user set by hand stays.
+ *
+ * @param {object} printer - the printer runtime object
+ * @param {string|null} previousFormat - the template the locations were written with
+ */
+export async function reformatPrinterLocations(printer, previousFormat) {
+    if (!settings.SET_LOCATION) return;
+
+    for (const { amsId, spool } of await occupiedSlots(printer)) {
+        if (!ownsLocation(spool?.location, printer.name, previousFormat)) continue;
         await claimSlotLocation(printer, amsId, spool);
     }
 }

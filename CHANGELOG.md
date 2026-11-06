@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A print of a file that was changed and sent again under the same name is weighed from the new file. The printer can keep both copies, one in its cache and one on the storage root, and the service read whichever name it tried first, which could be the old file. It now asks the printer when each copy was written and reads the newest (issue #252)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.1
    - New Features:
       - An original Bambu Lab spool is linked through Spoolman's own tags. Spoolman 0.27.0 and newer hold the tag of a spool natively, and a spool created or merged against such a Spoolman gets the serial number of its RFID chip as a native tag. A native tag belongs to one spool only, so two records can no longer claim the same physical spool the way two equal extra fields could. The extra field `tag` is still read, a spool linked before is recognised exactly as it was, and an older Spoolman is linked through the extra field as before. Based on the proposal in PR #254

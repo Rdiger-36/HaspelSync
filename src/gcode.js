@@ -104,8 +104,23 @@ export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileNam
         debug("gcode", printer.name, printer.logFilePath,
             `[Print] Looking for the sliced file as ${candidates.join(" or ")}`);
 
+        // The path remembered before a restart stays first, it was settled for
+        // this very print. The names are tried newest first: a job reprinted
+        // under its old name after the file was changed can leave the old copy
+        // in one place and the new one in the other, and the first name used
+        // to win whatever its age (issue #252).
+        const remembered = candidates.length > named.length ? [candidates[0]] : [];
+        const stamped = await stampCandidates(client, named);
+        const sorted = newestFirst(stamped);
+        const order = [...remembered, ...sorted.map(file => file.path)];
+        const present = sorted.filter(file => Number.isFinite(file.modifiedAt));
+        if (present.length > 1) {
+            console.log(printer.name, printer.logFilePath,
+                `[Print] The job's name is on ${present.length} files, reading the newest first: ${present.map(f => `${f.path} (${new Date(f.modifiedAt).toISOString()})`).join(", ")}`);
+        }
+
         let buf = null;
-        for (const path of candidates) {
+        for (const path of order) {
             try {
                 const chunks = [];
                 const writable = new Writable({
@@ -496,6 +511,47 @@ export function readZipTailEntry(tail, tailStart, name) {
         return null;
     }
     return null;
+}
+
+/**
+ * Asks the printer when each candidate path was written.
+ *
+ * One MDTM per path, nothing is downloaded. A path that answers with an error
+ * carries `modifiedAt: null`, which is what a missing file looks like; the
+ * download that follows still tries it and records the real reason.
+ *
+ * @param {object} client - a connected basic-ftp client
+ * @param {string[]} paths - the candidate paths, in the order they are tried
+ * @returns {Promise<{path: string, modifiedAt: number|null}[]>}
+ */
+async function stampCandidates(client, paths) {
+    const stamped = [];
+    for (const path of paths) {
+        try {
+            stamped.push({ path, modifiedAt: (await client.lastMod(path)).getTime() });
+        } catch {
+            stamped.push({ path, modifiedAt: null });
+        }
+    }
+    return stamped;
+}
+
+/**
+ * The candidate paths, newest file first.
+ *
+ * A path without a time keeps its place relative to the others without one,
+ * after every path that has a time, so a printer that does not answer MDTM
+ * tries the names in the order `resolveRemotePaths()` gives, as before.
+ *
+ * @param {{path: string, modifiedAt: number|null}[]} stamped - candidates in their tried order
+ * @returns {{path: string, modifiedAt: number|null}[]}
+ */
+export function newestFirst(stamped) {
+    const known = file => Number.isFinite(file.modifiedAt);
+    return [
+        ...stamped.filter(known).sort((a, b) => b.modifiedAt - a.modifiedAt),
+        ...stamped.filter(file => !known(file)),
+    ];
 }
 
 /**

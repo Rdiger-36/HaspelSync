@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag } from "../src/ams.js";
+import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag, spoolMatchesTrayUuid } from "../src/ams.js";
 import { slotColors } from "../src/utils.js";
 
 test("correctRemainInt passes through a full-size spool unchanged", () => {
@@ -31,6 +31,36 @@ const spool = (id, tag, remaining) => ({
     remaining_weight: remaining,
     used_weight: 1000 - remaining,
     filament: { id, name: "Black", material: "PLA" },
+});
+
+test("spoolMatchesTrayUuid finds one tray UUID among three native tags", () => {
+    const registered = {
+        tags: [
+            { uid: "04AABBCC", format: "ntag" },
+            { uid: "AABBCC1122334455", format: "bambu" },
+            { uid: "04DDEEFF", format: "ntag" },
+        ],
+    };
+    assert.equal(spoolMatchesTrayUuid(registered, "aabbcc1122334455"), true);
+    assert.equal(spoolMatchesTrayUuid(registered, "AABB-CC11-2233-4455"), true);
+    assert.equal(spoolMatchesTrayUuid(registered, "NOT_MATCHED"), false);
+});
+
+test("spoolMatchesTrayUuid retains legacy tag compatibility", () => {
+    assert.equal(spoolMatchesTrayUuid(spool(1, "AABBCC", 800), "AABBCC"), true);
+    assert.equal(spoolMatchesTrayUuid({ tags: [] }, "AABBCC"), false);
+});
+
+test("haveSpoolDataChanged detects native tag additions", async () => {
+    const before = { ...spool(1, "AAA", 800), tags: [] };
+    const after = { ...spool(1, "AAA", 800), tags: [{ uid: "AABBCC", format: "bambu" }] };
+    assert.equal(await haveSpoolDataChanged([after], [before]), true);
+});
+
+test("haveSpoolDataChanged treats reordered native tags as unchanged", async () => {
+    const first = { ...spool(1, "AAA", 800), tags: [{ uid: "AABB" }, { uid: "CCDD" }] };
+    const second = { ...spool(1, "AAA", 800), tags: [{ uid: "CCDD" }, { uid: "AABB" }] };
+    assert.equal(await haveSpoolDataChanged([first], [second]), false);
 });
 
 test("haveSpoolDataChanged treats an unseeded baseline as changed", async () => {

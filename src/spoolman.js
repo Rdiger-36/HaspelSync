@@ -381,6 +381,21 @@ async function createExtraField() {
  * @param {object} spoolData - the UI spool, carrying slot and matched filament
  * @returns {Promise<{ok: boolean, error?: string}>} what became of the write
  */
+/**
+ * Registers a Bambu tray UUID as a native Spoolman tag on an existing spool.
+ * The legacy extra.tag remains in place when an older Spoolman does not
+ * support native tags or the tag link fails, so the spool stays identifiable.
+ */
+async function linkNativeSpoolTag(spoolData, spoolId) {
+    try {
+        await got.post(`${spoolmanUrl()}/api/v1/spool/${spoolId}/tag`, {
+            json: { uid: spoolData.slot.tray_uuid, format: "bambu" },
+        });
+    } catch (error) {
+        logSpoolmanFailure(spoolData, `Native tag link for Spool-ID ${spoolId}`, error);
+    }
+}
+
 export async function createSpool(spoolData) {
     const postData = buildSpoolPayload(spoolData, spoolData.matchingInternalFilament.id);
 
@@ -388,7 +403,8 @@ export async function createSpool(spoolData) {
     trace("spoolman", spoolData.printerName, spoolData.logFilePath, "    Payload:", JSON.stringify(postData));
 
     try {
-        await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: postData });
+        const response = await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: postData, responseType: "json" });
+        await linkNativeSpoolTag(spoolData, response.body.id);
         console.log(spoolData.printerName, spoolData.logFilePath, `    Spool successfully created for Slot => ${spoolData.amsId}!`);
         return { ok: true };
     } catch (error) {
@@ -501,7 +517,8 @@ export async function createFilamentAndSpool(spoolData) {
         debug("spoolman", spoolData.printerName, spoolData.logFilePath, "    Sending POST request to:", `${spoolmanUrl()}/api/v1/spool`);
         trace("spoolman", spoolData.printerName, spoolData.logFilePath, "    Payload:", JSON.stringify(spoolPayload));
 
-        await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: spoolPayload, responseType: "json" });
+        const response = await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: spoolPayload, responseType: "json" });
+        await linkNativeSpoolTag(spoolData, response.body.id);
         console.log(spoolData.printerName, spoolData.logFilePath, `    Filament and Spool successfully created for Slot => ${spoolData.amsId}!`);
         return { ok: true };
     } catch (error) {
@@ -527,6 +544,7 @@ export async function mergeSpool(spoolData) {
 
     try {
         await got.patch(`${spoolmanUrl()}/api/v1/spool/${spoolData.mergeableSpool.id}`, { json: postData });
+        await linkNativeSpoolTag(spoolData, spoolData.mergeableSpool.id);
         console.log(spoolData.printerName, spoolData.logFilePath, `    Spool successfully merged with Spool-ID ${spoolData.mergeableSpool.id} => ${spoolData.mergeableSpool.filament.name}`);
         return { ok: true };
     } catch (error) {

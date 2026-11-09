@@ -485,9 +485,9 @@ export function findMergeableSpool(amsSpool, allSpools) {
         const weightMatches = spoolRemainingWeight !== null &&
             spoolmanSpool.remaining_weight >= spoolRemainingWeight * 0.85 &&
             spoolmanSpool.remaining_weight <= spoolRemainingWeight * 1.15;
-        const hasTag = !!spoolTag(spoolmanSpool) || (Array.isArray(spoolmanSpool.tags) && spoolmanSpool.tags.length > 0);
-
-        if (settings.NEVER_MERGE_IF_TAG && hasTag) return false;
+        const hasNativeTag = Array.isArray(spoolmanSpool.tags) && spoolmanSpool.tags.length > 0;
+        if (hasNativeTag) return false;
+        if (settings.NEVER_MERGE_IF_TAG && !!spoolTag(spoolmanSpool)) return false;
 
         const neverUsed = spoolmanSpool.used_weight === 0 || spoolmanSpool.used_weight == null;
 

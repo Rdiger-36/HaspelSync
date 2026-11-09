@@ -286,13 +286,29 @@ export function spoolTag(spool) {
     }
 }
 
+/**
+ * Matches an AMS tray UUID against either a native Spoolman tag or the legacy
+ * extra.tag field. Spoolman normalises native UIDs to uppercase hexadecimal,
+ * so accept separators and mixed case on either side of the comparison.
+ */
+export function spoolMatchesTrayUuid(spool, trayUuid) {
+    if (typeof trayUuid !== "string" || !trayUuid.trim() || trayUuid === "N/A") return false;
+    const normalized = trayUuid.replace(/[:_\\s-]/g, "").toUpperCase();
+    const legacy = spoolTag(spool);
+    if (legacy?.replace(/[:_\\s-]/g, "").toUpperCase() === normalized) return true;
+    return Array.isArray(spool?.tags) && spool.tags.some(tag =>
+        typeof tag?.uid === "string" &&
+        tag.uid.replace(/[:_\\s-]/g, "").toUpperCase() === normalized
+    );
+}
+
 export function findExistingSpool(amsSpool, allSpools) {
     const amsColors = slotColors(amsSpool);
     const sortedAmsColors = [...amsColors].sort();
 
     return allSpools.find(spoolmanSpool => {
         const materialMatches = spoolmanSpool.filament.material === amsSpool.tray_sub_brands;
-        const tagMatches = spoolTag(spoolmanSpool) === amsSpool.tray_uuid;
+        const tagMatches = spoolMatchesTrayUuid(spoolmanSpool, amsSpool.tray_uuid);
 
         // One comparison for both shapes. A count that differs is what keeps a
         // multi colour record from matching a single colour slot on its first
@@ -469,7 +485,7 @@ export function findMergeableSpool(amsSpool, allSpools) {
         const weightMatches = spoolRemainingWeight !== null &&
             spoolmanSpool.remaining_weight >= spoolRemainingWeight * 0.85 &&
             spoolmanSpool.remaining_weight <= spoolRemainingWeight * 1.15;
-        const hasTag = !!spoolTag(spoolmanSpool);
+        const hasTag = !!spoolTag(spoolmanSpool) || (Array.isArray(spoolmanSpool.tags) && spoolmanSpool.tags.length > 0);
 
         if (settings.NEVER_MERGE_IF_TAG && hasTag) return false;
 
@@ -504,6 +520,8 @@ export async function haveSpoolDataChanged(spools, lastSpoolData) {
         if (!spool || !lastSpool) return false;
         return (
             spool?.extra?.tag === lastSpool?.extra?.tag &&
+            JSON.stringify((spool.tags || []).map(tag => tag.uid).sort()) ===
+                JSON.stringify((lastSpool.tags || []).map(tag => tag.uid).sort()) &&
             spool.remaining_weight === lastSpool.remaining_weight &&
             JSON.stringify(spool.filament) === JSON.stringify(lastSpool.filament)
         );

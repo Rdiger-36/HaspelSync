@@ -45,7 +45,7 @@ import {
     consumptionCandidate,
     matchConsumption,
     holderSwapIndices,
-    spoolTag,
+    spoolMatchesTrayUuid,
     modelCanDry,
 } from "./ams.js";
 import { toClientSpool, loadedSlotIds } from "./uispool.js";
@@ -2236,7 +2236,7 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
 
     if (spools.length !== 0) {
         for (const spool of spools) {
-            if (spoolTag(spool) === slot.tray_uuid) {
+            if (spoolMatchesTrayUuid(spool, slot.tray_uuid)) {
                 trace("spoolman", printer.name, printer.logFilePath, " Connected Spool found: " + JSON.stringify(spool));
                 found = true;
 
@@ -2446,7 +2446,7 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
         // has already been refreshed to include it).
         if (mutated) {
             const freshSpools = await getSpoolmanSpools();
-            const linked = freshSpools.find(s => spoolTag(s) === slot.tray_uuid);
+            const linked = freshSpools.find(s => spoolMatchesTrayUuid(s, slot.tray_uuid));
             if (linked) {
                 existingSpool = linked;
                 found = true;
@@ -2607,7 +2607,7 @@ function autoAssignThirdPartySpool(printer, amsId, slot, spools) {
 }
 
 /**
- * The spool in `list` whose Spoolman `extra.tag` holds this slot's `tray_uuid`.
+ * The spool in `list` whose native or legacy tag matches this slot's `tray_uuid`.
  *
  * The tag is stored JSON encoded, and a hand edited one that is not decodes to
  * nothing rather than throwing here, which would otherwise take down the whole
@@ -2620,7 +2620,7 @@ function autoAssignThirdPartySpool(printer, amsId, slot, spools) {
 function spoolWithTag(list, trayUuid) {
     if (!trayUuid) return null;
 
-    return (list || []).find(spool => spoolTag(spool) === trayUuid) || null;
+    return (list || []).find(spool => spoolMatchesTrayUuid(spool, trayUuid)) || null;
 }
 
 /**

@@ -70,4 +70,4 @@ Both volumes are worth mounting: `/app/printers` holds `printers.json`, `setting
 3. Add your printers under **Printers**, each with name, serial number, IP and access code. The dialog tests MQTT and FTPS before saving.
 4. Pick the **operation mode**, `automatic` or `manual`, see [Operation modes](how-it-works.md#operation-modes).
 
-Nothing has to be prepared in Spoolman. The extra field `tag` for spools is created by the service on the first start, the vendor "Bambu Lab" when the first filament is created.
+Nothing has to be prepared in Spoolman. The extra field `tag` for spools is created by the service on the first start, on a Spoolman with native tags as well, where it is kept for the tools that still read it, the vendor "Bambu Lab" when the first filament is created.

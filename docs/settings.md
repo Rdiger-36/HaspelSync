@@ -11,8 +11,8 @@ The page is split into sections, listed in a navigation card at the left; on a w
 | Section | Holds |
 | :---- | :---- |
 | **Printers** | Add, edit and remove printers, each with a connection test for MQTT and FTPS, and the **Printer connection** card: offline check interval, the backoff limit for a printer that stays offline and the retry limit |
-| **Spoolman** | Endpoint, plus host, port, subfolder and public URL in a collapsed section. The line under the field says which URL the service actually talks to |
-| **Tracking** | Operation mode, whether a [3rd party spool is assigned automatically](web-ui.md), **Clear print result after**, the minutes a finished print stays on the dashboard before the card returns to idle (ten by default, 0 keeps the result until it is cleared by hand), and [legacy mode](legacy-mode.md). Below it the **Synchronisation** card: slot update interval, writing the slot as the spool location, with the template it is written in ([**Location format**](#the-spoolman-location)), never merging a tagged spool, [archiving empty spools](how-it-works.md#archiving-empty-spools) |
+| **Spoolman** | Endpoint, plus host, port, subfolder and public URL in a collapsed section. The line under the field says which URL the service actually talks to. Below it the [**Spool tags**](#spool-tags) card, which says how the spools are linked and migrates the ones still on the extra field |
+| **Tracking** | Operation mode, whether a [3rd party spool is assigned automatically](web-ui.md), **Clear print result after**, the minutes a finished print stays on the dashboard before the card returns to idle (ten by default, 0 keeps the result until it is cleared by hand), and [legacy mode](legacy-mode.md). Below it the **Synchronisation** card: slot update interval, writing the slot as the spool location, with the template it is written in ([**Location format**](#the-spoolman-location)), never merging a tagged spool, [writing the extra field `tag` as well](#spool-tags), [archiving empty spools](how-it-works.md#archiving-empty-spools) |
 | **Logging** | Log file size and how many rotated files are kept, for the server and per printer, plus **Log detail...**: the [log level, the areas and the raw MQTT capture](troubleshooting.md#how-much-gets-logged). The same dialog per printer, **Log** in the Printers card, also [exports that printer's logs](troubleshooting.md#diagnostics-and-privacy) |
 | **Access** | The Web UI password, the host names this service may be addressed under, and the API keys for callers that have no browser. All three are empty by default: without a password the Web UI is open to the network, and IP addresses, `localhost` and `.local` names are accepted whatever the host list says |
 | **Web UI** | The language and the theme of the pages. Choices of this browser rather than of the installation: they apply at once, are kept in the browser and never reach `settings.json`, so two people on two phones can read the same installation in two languages |
@@ -109,6 +109,26 @@ Everything else in the template is written as it is. A few examples for a printe
 `{printer}` is required because it is how the service tells its own locations apart: a location is only cleared or rewritten when it fits the template with this printer's name in it, so a location set by hand ("Shelf A") and the locations of another printer stay untouched. A location written with the default template counts as well, whatever the template says now, so a spool taken out after the template was changed still gives back the location it got before.
 
 Saving a new template rewrites the locations of the spools that are loaded at once. The create spool dialog suggests the location from the same template.
+
+## Spool tags
+
+An original Bambu Lab spool is linked to its Spoolman spool by the serial number its RFID chip reports. Spoolman 0.27.0 and newer hold that number as a tag of the spool itself, and the service uses it whenever the Spoolman it talks to is new enough. An older Spoolman only knows the extra field `tag`, and that is where the number goes there.
+
+Nothing has to be decided for this to work:
+
+- A spool created or merged from now on gets the native tag, and the extra field next to it.
+- A spool linked before, which carries only the extra field, is recognised exactly as before. The extra field is always read.
+- Where both exist and disagree, the native tag wins. Spoolman allows a tag on one spool only, the extra field can repeat.
+
+The **Spool tags** card in the **Spoolman** section says where the installation stands: how many spools carry a tag, and how many of them only in the extra field. **Check tags** asks Spoolman again, and **Migrate now** gives every spool that lacks it the native tag, archived spools included. The extra field is left in place, so the migration can be repeated and nothing that reads the field stops working. The dashboard offers the same migration once, the first time it finds spools to migrate.
+
+A spool the card lists as not migrated shares its tag with another spool, which already holds it natively or comes first with the same extra field. That is two records for one physical spool, and the card names both. Decide in Spoolman which one stays and clear the extra field of the other.
+
+**Also write extra.tag**, in the advanced part of the Synchronisation card, is on by default. Switch it off once nothing else reads the field: another tool, a second installation, or a version of this service older than the one that brought native tags. Spools are then linked through the native tag alone. The setting changes what is written, never what is read, and it has no effect on a Spoolman older than 0.27.0, which has nowhere else to put the tag.
+
+With it off and every spool migrated, the card offers one more button, **Clear extra fields**. It empties the extra field on the spools that carry the same tag natively, after asking, and it is the one step here that cannot be undone from this page. Anything that reads only the extra field no longer recognises those spools afterwards, and an older version of this service in automatic mode would create them a second time. A spool that could not be migrated keeps its field. Leaving the fields where they are costs nothing: the native tag wins either way.
+
+Spoolman's tags are not reserved for this service. An NFC sticker, an OpenPrintTag or another tool may put its own on a spool. Those are left alone: only a Bambu Lab tag with the 32 digit serial number counts as this service's link, and a spool carrying any other tag can still be merged.
 
 ## A printer that is switched off
 

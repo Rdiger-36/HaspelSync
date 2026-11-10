@@ -6,7 +6,7 @@ The printers publish their state via MQTT, this service listens and talks to Spo
 
 From what the printer reports about its slots, the AMS units and the external spool holder alike, it can:
 
-- **Merge spools**: a spool in a slot whose material, colour and remaining weight match a spool in Spoolman that carries no tag is merged with it. The serial number of the detected spool is written into the spool's extra field `tag`, which links the two from then on.
+- **Merge spools**: a spool in a slot whose material, colour and remaining weight match a spool in Spoolman that carries no tag is merged with it. The serial number of the detected spool is written to the Spoolman spool as its tag, which links the two from then on: as a native tag on Spoolman 0.27.0 and newer, and into the extra field `tag`, which is all an older Spoolman has. See [Spool tags](settings.md#spool-tags).
 - **Create spools**: a detected spool with a matching registered filament in Spoolman, but no spool, gets one created, tag included.
 - **Create filaments and spools**: with no matching filament either, the filament is imported from the SpoolmanDB, registered, and the spool created on top of it.
 

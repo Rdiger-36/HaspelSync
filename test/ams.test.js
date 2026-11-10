@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag, spoolMatchesTrayUuid, normalizeTagUid, findSpoolByTrayUuid, hasBambuTag, planTagMigration, planTagCleanup } from "../src/ams.js";
+import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, openMergeCandidate, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag, spoolMatchesTrayUuid, normalizeTagUid, findSpoolByTrayUuid, hasBambuTag, planTagMigration, planTagCleanup } from "../src/ams.js";
 import { slotColors } from "../src/utils.js";
 import { settings } from "../src/settings.js";
 
@@ -252,6 +252,25 @@ test("findMergeableSpool skips the weight test when there is no reading", () => 
     assert.equal(findMergeableSpool(glowSlot(null), [half]), undefined);
     // An empty spool keeps matching on its own rule, unchanged
     assert.equal(findMergeableSpool(glowSlot(null), [empty])?.id, 15);
+});
+
+test("openMergeCandidate keeps the candidate of a slot that is not linked", () => {
+    const candidate = mergeCandidate();
+    assert.equal(openMergeCandidate(candidate, { connectedViaTag: false, connectedViaMapping: false }), candidate);
+    assert.equal(openMergeCandidate(candidate), candidate);
+    // findMergeableSpool answers undefined, the UI spool carries null
+    assert.equal(openMergeCandidate(undefined, { connectedViaTag: false, connectedViaMapping: false }), null);
+});
+
+test("openMergeCandidate drops the candidate of a linked slot", () => {
+    // After an automatic merge the candidate is the spool the slot was just
+    // linked to, and the slot reported it as existingSpool and mergeableSpool
+    // at the same time.
+    const candidate = mergeCandidate();
+    assert.equal(openMergeCandidate(candidate, { connectedViaTag: true, connectedViaMapping: false }), null);
+    // An assigned slot offers to remove the assignment, never a merge
+    assert.equal(openMergeCandidate(candidate, { connectedViaTag: false, connectedViaMapping: true }), null);
+    assert.equal(openMergeCandidate(candidate, { connectedViaTag: true, connectedViaMapping: true }), null);
 });
 
 /* ---- Telling a slot being read from one that is simply empty ---- */

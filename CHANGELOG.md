@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A slot that is linked to a spool no longer names a spool it could be merged with. After an automatic merge the API reported the spool the slot had just been linked to as `mergeableSpool` as well, until something else changed the slot, and a slot with an assigned spool kept its merge candidate
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.7
    - New Features:
       - The Spoolman location written for a spool in a slot follows a template, "Location format" in the Synchronisation card. `{printer}` stands for the printer name and is required, `{unit}` for the AMS unit (`A`, `HT-A`), `{number}` for the position in it (`3`, and `1` for a unit with a single slot) and `{slot}` for the slot (`A3`). The default `{printer} - {slot}` writes what was written before, `{printer} AMS {unit}` gives the four spools of a unit one location, and `{printer}` alone stores the printer name. Changing the template rewrites the locations of the spools that are loaded, and a location written with the old default is still cleared when its spool is taken out. The create spool dialog suggests the location from the same template (issue #248)

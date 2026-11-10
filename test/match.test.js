@@ -52,6 +52,10 @@ test("a tagged or archived spool is never the chipless one", () => {
     assert.equal(spoolIsChipless(spool(1)), true);
     assert.equal(spoolIsChipless(spool(2, { extra: { tag: '"83362CE8"' } })), false);
     assert.equal(spoolIsChipless(spool(3, { archived: true })), false);
+    // A native Bambu Lab tag is a chip too, a sticker for another reader is not
+    assert.equal(spoolIsChipless(spool(4, { tags: [{ uid: "0417584A3ABE4274838571DB6AA6CABA", format: "bambu" }] })), false);
+    assert.equal(spoolIsChipless(spool(5, { tags: [{ uid: "04AABBCC", format: "ntag" }] })), true);
+    assert.equal(spoolIsChipless(spool(6, { tags: [{ uid: "BAA8227400000100", format: "bambu" }] })), true);
 });
 
 /* ---- uniqueSpoolForSlot ---- */

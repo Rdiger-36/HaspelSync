@@ -71,13 +71,19 @@ export function spoolFitsSlot(slot, spool) {
  *
  * A spool that carries a tag in Spoolman is a Bambu spool the service linked
  * by its chip, so it is never the one without a chip, however well its colour
- * fits. An archived spool is one the user put away.
+ * fits. The tag is the extra field of that name or a native Spoolman tag that
+ * holds a tray_uuid, format "bambu" and 32 hexadecimal characters; any other
+ * native tag is a sticker or a chip UID registered for another reader and says
+ * nothing about a link. An archived spool is one the user put away.
  *
  * @param {object} spool - a Spoolman spool record
  * @returns {boolean}
  */
 export function spoolIsChipless(spool) {
-    return !spool?.archived && !spool?.extra?.tag;
+    const nativeBambuTag = Array.isArray(spool?.tags) && spool.tags.some(tag =>
+        String(tag?.format ?? "").toLowerCase() === "bambu"
+        && /^[0-9a-f]{32}$/i.test(String(tag?.uid ?? "").replace(/[\s:_-]/g, "")));
+    return !spool?.archived && !spool?.extra?.tag && !nativeBambuTag;
 }
 
 /**

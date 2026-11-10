@@ -8,6 +8,7 @@ import { settings, spoolmanUrl, buildSpoolmanUrl, getSettingsView, updateSetting
 import { ENV_CONFIG_NOTICE, deprecatedConfig } from "./deprecation.js";
 import { UPGRADE_NOTICE, upgradeNotice } from "./upgradenotice.js";
 import { IMAGE_NOTICE, dismissLegacyImageNotice, legacyImageNotice } from "./imagenotice.js";
+import { TAG_NOTICE, tagMigrationNotice } from "./tagnotice.js";
 import { buildDiagnosticsBundle, parseDiagnosticsScope, knownValues, systemInfo } from "./diagnostics.js";
 import { checkForUpdate } from "./update.js";
 import { maskCodes, maskSerial, maskText } from "./anonymize.js";
@@ -36,6 +37,9 @@ import {
     getSpoolmanSpool,
     patchSpoolFields,
     getCachedExternalFilaments,
+    tagMigrationStatus,
+    migrateSpoolTags,
+    removeLegacyTags,
 } from "./spoolman.js";
 import { calcFullConsumption, calcPartialConsumption, completedLayerIndex, testFtpsConnection, resolveSliceSlots, orderedAmsSlots, printStageName, isPreparingStage, splitAtRefills, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { consumptionCandidate, matchConsumption } from "./ams.js";
@@ -909,6 +913,34 @@ export function registerRoutes(app, printers) {
         }
     });
 
+    // How many spools still carry their tag in extra.tag alone, and whether
+    // this Spoolman can hold it natively at all. Reads only.
+    app.get("/api/spoolman/tags", async (req, res) => {
+        try {
+            res.json(await tagMigrationStatus());
+        } catch (err) {
+            console.error("Server", serverLogFilePath, "Could not check the Spoolman tags:", err?.message);
+            res.status(502).json({ ok: false, error: err?.message || "Could not check the Spoolman tags" });
+        }
+    });
+
+    // Links every such spool natively. extra.tag stays where it is, so this
+    // adds and never takes away, and running it twice changes nothing.
+    app.post("/api/spoolman/tags/migrate", async (req, res) => {
+        const result = await migrateSpoolTags();
+        if (result.ok) return res.json(result);
+        res.status(result.code ? 409 : 502).json(result);
+    });
+
+    // Clears extra.tag where the native tag says the same. The only step of
+    // the move that takes something away, so it is its own call and refused
+    // while the field is still being written.
+    app.post("/api/spoolman/tags/cleanup", async (req, res) => {
+        const result = await removeLegacyTags();
+        if (result.ok) return res.json(result);
+        res.status(result.code ? 409 : 502).json(result);
+    });
+
     // The whole Spoolman record behind one slot, for the spool detail dialog.
     // The dashboard payload is narrowed on purpose (see uispool.js), so the
     // fields the dialog shows are fetched once, on demand, rather than pushed
@@ -1403,7 +1435,8 @@ export function registerRoutes(app, printers) {
     // have been saved in the Web UI, which is why nothing here has to know the
     // previous version. The image notice is the exception: its dismissal is
     // held in memory only, so it is back after every start until the image
-    // has been switched, see imagenotice.js.
+    // has been switched, see imagenotice.js. The tag notice needs a Spoolman
+    // with native tags and a spool that is not migrated yet, see tagnotice.js.
     // ---------------------------------------------------------------------
 
     app.get("/api/notices", (req, res) => {
@@ -1411,6 +1444,7 @@ export function registerRoutes(app, printers) {
             [UPGRADE_NOTICE]: upgradeNotice(),
             [ENV_CONFIG_NOTICE]: deprecatedConfig(),
             [IMAGE_NOTICE]: legacyImageNotice(),
+            [TAG_NOTICE]: tagMigrationNotice(),
         });
     });
 
@@ -1423,7 +1457,7 @@ export function registerRoutes(app, printers) {
     });
 
     app.post("/api/notices/:id/ack", (req, res) => {
-        if (![UPGRADE_NOTICE, ENV_CONFIG_NOTICE, IMAGE_NOTICE].includes(req.params.id)) {
+        if (![UPGRADE_NOTICE, ENV_CONFIG_NOTICE, IMAGE_NOTICE, TAG_NOTICE].includes(req.params.id)) {
             return res.status(404).json({ ok: false, error: "Unknown notice", code: "unknownNotice" });
         }
 

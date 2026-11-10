@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildFilamentPayload, buildSpoolPayload } from "../src/spoolman.js";
+import { buildFilamentPayload, buildSpoolPayload, supportsNativeTags, writesLegacyTag } from "../src/spoolman.js";
+import { settings } from "../src/settings.js";
 import { state } from "../src/state.js";
 
 state.vendorID = 1;
@@ -154,4 +155,43 @@ test("the remain percentage is rescaled to the real spool size", () => {
 
     assert.equal(payload.initial_weight, 500);
     assert.equal(payload.used_weight, 250);
+});
+
+/* ---- Native tags ---- */
+
+test("supportsNativeTags starts at Spoolman 0.27.0", () => {
+    assert.equal(supportsNativeTags("0.26.1"), false);
+    assert.equal(supportsNativeTags("0.27.0"), true);
+    assert.equal(supportsNativeTags("v0.27.1"), true);
+    assert.equal(supportsNativeTags("1.0.0"), true);
+    // Not a version at all reads as too old: extra.tag works everywhere
+    assert.equal(supportsNativeTags(null), false);
+    assert.equal(supportsNativeTags("unknown"), false);
+});
+
+test("extra.tag is written unless a Spoolman with native tags is told to stop", () => {
+    const slot = { tray_uuid: "0417584A3ABE4274838571DB6AA6CABA", tray_weight: "1000", remain: 100, tray_type: "PLA" };
+    const before = { setting: settings.WRITE_EXTRA_TAG, native: state.spoolmanNativeTags };
+    try {
+        settings.WRITE_EXTRA_TAG = false;
+
+        // An old Spoolman has nothing else to hold the link, whatever is set
+        state.spoolmanNativeTags = false;
+        assert.equal(writesLegacyTag(), true);
+        assert.deepEqual(buildSpoolPayload({ slot }, 7).extra, { tag: '"0417584A3ABE4274838571DB6AA6CABA"' });
+
+        // Not asked yet counts as old
+        state.spoolmanNativeTags = null;
+        assert.equal(writesLegacyTag(), true);
+
+        state.spoolmanNativeTags = true;
+        assert.equal(writesLegacyTag(), false);
+        assert.equal("extra" in buildSpoolPayload({ slot }, 7), false);
+
+        settings.WRITE_EXTRA_TAG = true;
+        assert.deepEqual(buildSpoolPayload({ slot }, 7).extra, { tag: '"0417584A3ABE4274838571DB6AA6CABA"' });
+    } finally {
+        settings.WRITE_EXTRA_TAG = before.setting;
+        state.spoolmanNativeTags = before.native;
+    }
 });

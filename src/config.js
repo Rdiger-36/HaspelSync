@@ -76,6 +76,7 @@ export const envSeed = {
     OFFLINE_MAX_INTERVAL: process.env.OFFLINE_MAX_INTERVAL,
     MAX_RETRIES: process.env.MAX_RETRIES,
     NEVER_MERGE_IF_TAG: process.env.NEVER_MERGE_IF_TAG,
+    WRITE_EXTRA_TAG: process.env.WRITE_EXTRA_TAG,
     SET_LOCATION: process.env.SET_LOCATION,
     LOCATION_FORMAT: process.env.LOCATION_FORMAT,
     ARCHIVE_EMPTY_SPOOLS: process.env.ARCHIVE_EMPTY_SPOOLS,

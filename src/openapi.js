@@ -3,6 +3,7 @@ import { LOG_CATEGORIES, LOG_LEVELS, SETTINGS_SCHEMA } from "./settings.js";
 import { ENV_CONFIG_NOTICE } from "./deprecation.js";
 import { UPGRADE_NOTICE } from "./upgradenotice.js";
 import { IMAGE_NOTICE } from "./imagenotice.js";
+import { TAG_NOTICE } from "./tagnotice.js";
 import { SLOT_OPTIONS } from "./utils.js";
 
 /**
@@ -504,6 +505,18 @@ const schemas = {
         printerVariablesIgnored: t.boolean("They no longer do anything because printers.json owns the list."),
     }, { additional: true }),
 
+    TagNotice: t.object({
+        active: t.boolean("Spoolman knows native tags and at least one spool carries its tag in `extra.tag` alone."),
+        acknowledged: t.boolean("Dismissed in the Web UI. Stored server side, so it holds for every browser."),
+        pending: t.integer("How many spools a migration would link, as of the last look."),
+        version: t.nullable(t.string("The Spoolman version.")),
+    }),
+
+    TagConflict: t.object({
+        id: t.integer("The spool that cannot be migrated."),
+        uid: t.string("Its tag."),
+        heldBy: t.integer("The spool that holds this tag already."),
+    }),
     ImageNotice: t.object({
         active: t.boolean("The container runs from the deprecated image name."),
         acknowledged: t.boolean("Dismissed in the Web UI since the service started. Held in memory for every browser, and back after every start until the image has been switched."),
@@ -1025,6 +1038,64 @@ export function buildOpenApiDocument() {
         },
     });
 
+    op("get", "/api/spoolman/tags", {
+        tags: ["Spoolman"],
+        summary: "How many spools carry their tag natively, and how many only in extra.tag",
+        description: "Spoolman 0.27.0 and newer hold a spool's tag as a native tag. Older links live in the extra field `tag`, which is still read. Nothing is written here.",
+        responses: {
+            200: json("The state of the tags", t.object({
+                supported: t.boolean("Whether this Spoolman knows native tags."),
+                version: t.nullable(t.string("The Spoolman version, null when it could not be read.")),
+                total: t.integer("Spools linked to a Bambu Lab spool, natively or through `extra.tag`, archived ones included."),
+                migrated: t.integer("Of those, the ones that carry the tag natively."),
+                pending: t.integer("Of those, the ones a migration would link."),
+                conflicts: t.array(t.ref("TagConflict"), "Spools that cannot be migrated."),
+                redundant: t.integer("Spools whose `extra.tag` repeats their native tag, which is what a cleanup would clear."),
+                legacyWritten: t.boolean("Whether `extra.tag` is still written. A cleanup is refused while it is."),
+            })),
+            502: failure("Spoolman could not be reached"),
+        },
+    });
+
+    op("post", "/api/spoolman/tags/migrate", {
+        tags: ["Spoolman"],
+        summary: "Link every spool that carries only extra.tag natively",
+        description: "Adds the native tag and leaves `extra.tag` in place, so it can be run again at any time and changes nothing the second time.",
+        responses: {
+            200: json("What was linked", t.object({
+                ok: t.boolean(),
+                migrated: t.integer("Spools linked by this run."),
+                failed: t.array(t.object({
+                    id: t.integer("Spoolman spool id."),
+                    uid: t.string("The tag."),
+                    error: t.string("Why Spoolman refused it."),
+                }), "Spools Spoolman refused to link."),
+                conflicts: t.array(t.ref("TagConflict"), "Spools skipped because another spool holds their tag."),
+            })),
+            409: failure("This Spoolman has no native tags, or a migration is already running"),
+            502: failure("Spoolman could not be reached"),
+        },
+    });
+
+    op("post", "/api/spoolman/tags/cleanup", {
+        tags: ["Spoolman"],
+        summary: "Clear extra.tag on every spool that carries the same tag natively",
+        description: "Cannot be undone, and anything that reads only `extra.tag` no longer recognises those spools afterwards. Refused while `WRITE_EXTRA_TAG` is on. A spool that is not migrated yet, or whose tag another spool holds, keeps its field.",
+        responses: {
+            200: json("What was cleared", t.object({
+                ok: t.boolean(),
+                removed: t.integer("Spools whose `extra.tag` was cleared."),
+                failed: t.array(t.object({
+                    id: t.integer("Spoolman spool id."),
+                    uid: t.string("The tag."),
+                    error: t.string("Why Spoolman refused it."),
+                }), "Spools Spoolman refused to change."),
+            })),
+            409: failure("This Spoolman has no native tags, `extra.tag` is still written, or a migration is already running"),
+            502: failure("Spoolman could not be reached"),
+        },
+    });
+
     op("get", "/api/spoolman/lookups", {
         tags: ["Spoolman"],
         summary: "What the create spool dialog picks from: vendors, materials, locations, filaments",
@@ -1301,9 +1372,9 @@ export function buildOpenApiDocument() {
     op("get", "/api/notices", {
         tags: ["Service"],
         summary: "The notices the dashboard may show",
-        description: `Three: \`${UPGRADE_NOTICE}\`, this installation was updated from 1.2.x and has not read what changed, \`${ENV_CONFIG_NOTICE}\`, it is still configured through environment variables, and \`${IMAGE_NOTICE}\`, the container runs from the old image name.`,
+        description: `Four: \`${UPGRADE_NOTICE}\`, this installation was updated from 1.2.x and has not read what changed, \`${ENV_CONFIG_NOTICE}\`, it is still configured through environment variables, \`${IMAGE_NOTICE}\`, the container runs from the old image name, and \`${TAG_NOTICE}\`, spools are still linked through extra.tag alone on a Spoolman that knows native tags.`,
         responses: {
-            200: json("Keyed by notice id", t.object({ [UPGRADE_NOTICE]: t.ref("UpgradeNotice"), [ENV_CONFIG_NOTICE]: t.ref("Notice"), [IMAGE_NOTICE]: t.ref("ImageNotice") })),
+            200: json("Keyed by notice id", t.object({ [UPGRADE_NOTICE]: t.ref("UpgradeNotice"), [ENV_CONFIG_NOTICE]: t.ref("Notice"), [IMAGE_NOTICE]: t.ref("ImageNotice"), [TAG_NOTICE]: t.ref("TagNotice") })),
         },
     });
 
@@ -1311,7 +1382,7 @@ export function buildOpenApiDocument() {
         tags: ["Service"],
         summary: "Dismiss a notice",
         description: "Stored server side, so it stays dismissed in every browser.",
-        parameters: [{ name: "id", in: "path", required: true, schema: t.string(null, { enum: [UPGRADE_NOTICE, ENV_CONFIG_NOTICE, IMAGE_NOTICE] }) }],
+        parameters: [{ name: "id", in: "path", required: true, schema: t.string(null, { enum: [UPGRADE_NOTICE, ENV_CONFIG_NOTICE, IMAGE_NOTICE, TAG_NOTICE] }) }],
         responses: {
             200: json("Dismissed", t.ref("Ok")),
             404: failure("Unknown notice"),

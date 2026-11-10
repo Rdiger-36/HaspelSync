@@ -246,18 +246,6 @@ export function slotIsBusy(slot) {
 }
 
 /**
- * Finds the Spoolman spool already connected to this slot.
- *
- * The connection is the `extra.tag` field holding the slot's `tray_uuid`, which
- * only Bambu Lab spools have. Material and colour must agree as well, so a tag
- * left over from a previous spool cannot resurface as a match. Multi colour
- * filaments compare the whole sorted colour set instead of a single hex.
- *
- * @param {object} amsSpool - a normalised AMS slot
- * @param {object[]} allSpools - the Spoolman spool list
- * @returns {object|null} the connected spool, or null
- */
-/**
  * The slot tag a Spoolman spool carries, or null.
  *
  * The service writes the tag JSON encoded, `"\"UUID\""`, and read it back in
@@ -286,22 +274,211 @@ export function spoolTag(spool) {
     }
 }
 
+/** What Spoolman calls the tag of a Bambu Lab spool in `tags[].format`. */
+export const BAMBU_TAG_FORMAT = "bambu";
+
 /**
- * Matches an AMS tray UUID against either a native Spoolman tag or the legacy
- * extra.tag field. Spoolman normalises native UIDs to uppercase hexadecimal,
- * so accept separators and mixed case on either side of the comparison.
+ * A tag in the one spelling every comparison uses, or null when it names
+ * nothing.
+ *
+ * Spoolman stores a native tag as uppercase hexadecimal without separators
+ * and accepts a `0x` in front, so the same is done here to both sides: the
+ * printer reports `tray_uuid` in upper case, a hand edited `extra.tag` need
+ * not be. The placeholder `processData()` writes and the all zero value of a
+ * slot without a chip are no tags. Spoolman allows a tag on exactly one spool,
+ * so registering the zeros would tie one record to every chipless slot.
+ *
+ * @param {*} value - a `tray_uuid`, an `extra.tag` or a native tag uid
+ * @returns {string|null}
  */
-export function spoolMatchesTrayUuid(spool, trayUuid) {
-    if (typeof trayUuid !== "string" || !trayUuid.trim() || trayUuid === "N/A") return false;
-    const normalized = trayUuid.replace(/[:_\\s-]/g, "").toUpperCase();
-    const legacy = spoolTag(spool);
-    if (legacy?.replace(/[:_\\s-]/g, "").toUpperCase() === normalized) return true;
-    return Array.isArray(spool?.tags) && spool.tags.some(tag =>
-        typeof tag?.uid === "string" &&
-        tag.uid.replace(/[:_\\s-]/g, "").toUpperCase() === normalized
-    );
+export function normalizeTagUid(value) {
+    if (typeof value !== "string") return null;
+    const uid = value.replace(/[\s:_-]/g, "").replace(/^0x/i, "").toUpperCase();
+    if (!uid || uid === "N/A" || /^0+$/.test(uid)) return null;
+    return uid;
 }
 
+/**
+ * The native Spoolman tags of a spool, normalised. Empty for a Spoolman that
+ * does not know native tags, whose records carry no `tags` at all.
+ *
+ * @param {object|null} spool - a Spoolman spool
+ * @returns {{uid: string, format: string|null}[]}
+ */
+export function nativeTags(spool) {
+    if (!Array.isArray(spool?.tags)) return [];
+    return spool.tags
+        .map(tag => ({
+            uid: normalizeTagUid(tag?.uid),
+            format: typeof tag?.format === "string" ? tag.format.toLowerCase() : null,
+        }))
+        .filter(tag => tag.uid);
+}
+
+/** Whether one of the spool's native tags is this `tray_uuid`. */
+export function hasNativeTag(spool, trayUuid) {
+    const uid = normalizeTagUid(trayUuid);
+    return !!uid && nativeTags(spool).some(tag => tag.uid === uid);
+}
+
+/** Whether the spool's `extra.tag` is this `tray_uuid`. */
+export function hasLegacyTag(spool, trayUuid) {
+    const uid = normalizeTagUid(trayUuid);
+    return !!uid && normalizeTagUid(spoolTag(spool)) === uid;
+}
+
+/**
+ * Whether a spool is the one behind this `tray_uuid`, by its native tags or by
+ * `extra.tag`.
+ *
+ * For one record alone. A lookup across a list goes through
+ * `findSpoolByTrayUuid()`, because the two sources can name different spools
+ * and only a look at the whole list can tell.
+ */
+export function spoolMatchesTrayUuid(spool, trayUuid) {
+    return hasNativeTag(spool, trayUuid) || hasLegacyTag(spool, trayUuid);
+}
+
+/**
+ * The spool in `list` behind this `tray_uuid`, or null.
+ *
+ * A native tag wins over `extra.tag`. Spoolman guarantees that a native tag
+ * sits on one spool only, while `extra.tag` is free text that two records can
+ * carry at once, so where the two disagree the native one is the fact and the
+ * other the leftover. `extra.tag` still answers on its own for every spool
+ * that was linked before native tags existed and has not been migrated.
+ *
+ * @param {object[]} list - Spoolman spools
+ * @param {string} trayUuid - the slot's `tray_uuid`
+ * @returns {object|null}
+ */
+export function findSpoolByTrayUuid(list, trayUuid) {
+    if (!normalizeTagUid(trayUuid)) return null;
+    const spools = list || [];
+    return spools.find(spool => hasNativeTag(spool, trayUuid))
+        || spools.find(spool => hasLegacyTag(spool, trayUuid))
+        || null;
+}
+
+/** The shape of a `tray_uuid` once normalised: 32 hexadecimal characters. */
+const TRAY_UUID = /^[0-9A-F]{32}$/;
+
+/**
+ * Whether a native tag is a `tray_uuid` link, the kind this service writes.
+ *
+ * The format alone does not say so. A reader held against a Bambu Lab spool
+ * sees the UID of the chip, eight or sixteen characters, never the `tray_uuid`
+ * stored on it, and a tool that registers that UID calls it "bambu" as well.
+ * Such a tag belongs to that tool: counting it as a link here kept the spool
+ * from being merged with its own slot, and replacing it on a merge deleted
+ * somebody else's tag. The price is the eight character tag of an old AMS,
+ * which has the shape of a chip UID and is therefore left alone too.
+ *
+ * @param {{uid: string, format: string|null}} tag - one entry of `nativeTags()`
+ * @returns {boolean}
+ */
+export function isTrayUuidTag(tag) {
+    return tag?.format === BAMBU_TAG_FORMAT && TRAY_UUID.test(tag.uid ?? "");
+}
+
+/**
+ * Whether a spool is linked to a Bambu Lab chip already, the old way or the
+ * new one.
+ *
+ * Any other native tag does not count, see `isTrayUuidTag()`: an NFC sticker
+ * somebody put on the spool for a reader of their own says nothing about which
+ * chip is inside, and such a spool is exactly the one that still has to be
+ * merged with its slot.
+ */
+export function hasBambuTag(spool) {
+    return !!normalizeTagUid(spoolTag(spool))
+        || nativeTags(spool).some(isTrayUuidTag);
+}
+
+/**
+ * What a migration of `extra.tag` to native tags has to do, without doing it.
+ *
+ * `pending` are the spools whose `extra.tag` is not among their native tags
+ * yet. `conflicts` are the ones that cannot be migrated, because Spoolman
+ * allows a tag on one record only: the tag is already native on another spool,
+ * or an earlier spool in the list carries the same `extra.tag`. Of two such
+ * duplicates the one that is not archived goes first, it is the one in use.
+ *
+ * `migrated` also counts a spool that carries its tag natively and nothing in
+ * `extra.tag`, which is what a spool looks like once the extra field is no
+ * longer written or was cleared. Without it a fully cleaned up Spoolman would
+ * read as one that holds no tagged spool at all.
+ *
+ * `redundant` are the spools whose `extra.tag` repeats one of their own native
+ * tags, see `planTagCleanup()`.
+ *
+ * @param {object[]} spools - every Spoolman spool, archived ones included
+ * @returns {{pending: {id: number, uid: string}[], conflicts: {id: number, uid: string, heldBy: number}[], migrated: number, redundant: {id: number, uid: string}[]}}
+ */
+export function planTagMigration(spools) {
+    const list = [...(spools || [])].sort((a, b) => Number(!!a.archived) - Number(!!b.archived));
+    const owner = new Map();
+    for (const spool of list) {
+        for (const tag of nativeTags(spool)) owner.set(tag.uid, spool.id);
+    }
+
+    const pending = [];
+    const conflicts = [];
+    let migrated = 0;
+
+    for (const spool of list) {
+        const uid = normalizeTagUid(spoolTag(spool));
+        if (!uid) {
+            if (nativeTags(spool).some(isTrayUuidTag)) migrated++;
+            continue;
+        }
+
+        const heldBy = owner.get(uid);
+        if (heldBy === spool.id) {
+            migrated++;
+        } else if (heldBy !== undefined) {
+            conflicts.push({ id: spool.id, uid, heldBy });
+        } else {
+            owner.set(uid, spool.id);
+            pending.push({ id: spool.id, uid });
+        }
+    }
+
+    return { pending, conflicts, migrated, redundant: planTagCleanup(list) };
+}
+
+/**
+ * The spools whose `extra.tag` can be cleared without losing anything: the
+ * same value is one of the spool's own native tags.
+ *
+ * Deliberately narrow. A spool that is still pending keeps its extra field,
+ * it is the only link it has, and so does one in conflict, where the field is
+ * what says which physical spool the record was meant for.
+ *
+ * @param {object[]} spools - every Spoolman spool, archived ones included
+ * @returns {{id: number, uid: string}[]}
+ */
+export function planTagCleanup(spools) {
+    const redundant = [];
+    for (const spool of spools || []) {
+        const uid = normalizeTagUid(spoolTag(spool));
+        if (uid && nativeTags(spool).some(tag => tag.uid === uid)) redundant.push({ id: spool.id, uid });
+    }
+    return redundant;
+}
+
+/**
+ * Finds the Spoolman spool already connected to this slot.
+ *
+ * The connection is the slot's `tray_uuid`, held by a native Spoolman tag or by
+ * the `extra.tag` field, which only Bambu Lab spools have. Material and colour must agree as well, so a tag
+ * left over from a previous spool cannot resurface as a match. Multi colour
+ * filaments compare the whole sorted colour set instead of a single hex.
+ *
+ * @param {object} amsSpool - a normalised AMS slot
+ * @param {object[]} allSpools - the Spoolman spool list
+ * @returns {object|null} the connected spool, or null
+ */
 export function findExistingSpool(amsSpool, allSpools) {
     const amsColors = slotColors(amsSpool);
     const sortedAmsColors = [...amsColors].sort();
@@ -485,9 +662,10 @@ export function findMergeableSpool(amsSpool, allSpools) {
         const weightMatches = spoolRemainingWeight !== null &&
             spoolmanSpool.remaining_weight >= spoolRemainingWeight * 0.85 &&
             spoolmanSpool.remaining_weight <= spoolRemainingWeight * 1.15;
-        const hasNativeTag = Array.isArray(spoolmanSpool.tags) && spoolmanSpool.tags.length > 0;
-        if (hasNativeTag) return false;
-        if (settings.NEVER_MERGE_IF_TAG && !!spoolTag(spoolmanSpool)) return false;
+        // Only a link to another Bambu Lab chip counts as tagged. A spool
+        // carrying NFC stickers for some other reader is still waiting to be
+        // merged with its slot, and skipping it creates the duplicate.
+        if (settings.NEVER_MERGE_IF_TAG && hasBambuTag(spoolmanSpool)) return false;
 
         const neverUsed = spoolmanSpool.used_weight === 0 || spoolmanSpool.used_weight == null;
 
@@ -495,11 +673,16 @@ export function findMergeableSpool(amsSpool, allSpools) {
     });
 }
 
+/** The native tags of a spool as one comparable string, whatever their order. */
+function nativeTagKey(spool) {
+    return nativeTags(spool).map(tag => `${tag.uid}|${tag.format ?? ""}`).sort().join(",");
+}
+
 /**
  * Whether the Spoolman side changed in a way that should trigger reprocessing.
  *
- * Only the three fields this service reacts to are compared: the tag link, the
- * remaining weight and the filament record. A null or non-array baseline counts
+ * Only the fields this service reacts to are compared: the tag link in both
+ * its forms, the remaining weight and the filament record. A null or non-array baseline counts
  * as changed, which is how the very first pass is forced to process everything.
  *
  * @param {object[]} spools - the current Spoolman spool list
@@ -520,8 +703,7 @@ export async function haveSpoolDataChanged(spools, lastSpoolData) {
         if (!spool || !lastSpool) return false;
         return (
             spool?.extra?.tag === lastSpool?.extra?.tag &&
-            JSON.stringify((spool.tags || []).map(tag => tag.uid).sort()) ===
-                JSON.stringify((lastSpool.tags || []).map(tag => tag.uid).sort()) &&
+            nativeTagKey(spool) === nativeTagKey(lastSpool) &&
             spool.remaining_weight === lastSpool.remaining_weight &&
             JSON.stringify(spool.filament) === JSON.stringify(lastSpool.filament)
         );

@@ -220,17 +220,38 @@ document.addEventListener("DOMContentLoaded", () => {
      * answer to the notice; it leaves the page, and with it any notice still
      * waiting behind this one.
      *
+     * A notice that asks for something to be done can bring that as `action`.
+     * Its button runs it in place and replaces the text with what came of it,
+     * leaving only the button that closes the dialog: the answer has to be
+     * read before it goes away.
+     *
      * @param {string} id - the notice id the server acknowledges
      * @param {string} title
      * @param {string[]} parts - the paragraphs, as markup
      * @param {boolean} [settingsButton] - whether to offer "Open the settings"
+     * @param {{label: string, run: function(): Promise<string[]>}} [action] - what the notice offers to do, answering with the paragraphs to show afterwards
      * @returns {Promise<void>}
      */
-    function showNoticeDialog(id, title, parts, settingsButton = false) {
+    function showNoticeDialog(id, title, parts, settingsButton = false, action = null) {
         const dialog = document.getElementById("notice-dialog");
+        const content = document.getElementById("notice-dialog-content");
+        const closeButton = document.getElementById("notice-dialog-close");
+        const openButton = document.getElementById("notice-dialog-open");
+        const actionButton = document.getElementById("notice-dialog-action");
+
         document.getElementById("notice-dialog-title").textContent = title;
-        document.getElementById("notice-dialog-content").innerHTML = parts.join("");
-        document.getElementById("notice-dialog-open").hidden = !settingsButton;
+        content.innerHTML = parts.join("");
+        openButton.hidden = !settingsButton;
+        actionButton.hidden = !action;
+        actionButton.disabled = false;
+        if (action) {
+            actionButton.textContent = action.label;
+            // Two primary buttons side by side say nothing about which one is
+            // meant, and the action is what the notice is asking about.
+            openButton.classList.remove("btn-primary");
+        } else {
+            openButton.classList.add("btn-primary");
+        }
 
         const acknowledge = async () => {
             try {
@@ -253,8 +274,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 window.location.href = "settings.html";
             };
 
+            actionButton.onclick = async () => {
+                actionButton.disabled = true;
+                closeButton.disabled = true;
+                openButton.disabled = true;
+                await acknowledge();
+                content.innerHTML = (await action.run()).join("");
+                actionButton.hidden = true;
+                openButton.disabled = false;
+                closeButton.disabled = false;
+                closeButton.focus();
+            };
+
             dialog.showModal();
-            document.getElementById("notice-dialog-close").focus();
+            closeButton.focus();
         });
     }
 
@@ -344,11 +377,38 @@ document.addEventListener("DOMContentLoaded", () => {
         await showNoticeDialog("legacy-image", t("dashboard.notice.image.title"), parts);
     }
 
+    /**
+     * Spools linked before Spoolman had native tags still carry their tag in
+     * the extra field alone. Asked once, with the migration one click away;
+     * the settings page keeps the same button under Spoolman.
+     */
+    async function showTagMigrationNotice(notice) {
+        if (!notice || !notice.active || notice.acknowledged) return;
+
+        const migrate = async () => {
+            try {
+                const result = await fetchJson("./api/spoolman/tags/migrate", { method: "POST" });
+                const done = [`<p>${escapeHtml(t("dashboard.notice.tags.done", { migrated: result.migrated }))}</p>`];
+                const left = (result.failed?.length ?? 0) + (result.conflicts?.length ?? 0);
+                if (left > 0) done.push(`<p>${escapeHtml(t("dashboard.notice.tags.left", { count: left }))}</p>`);
+                return done;
+            } catch (err) {
+                return [`<p>${escapeHtml(t("dashboard.notice.tags.error", { error: err.message }))}</p>`];
+            }
+        };
+
+        await showNoticeDialog("native-tags", t("dashboard.notice.tags.title"), [
+            `<p>${t("dashboard.notice.tags.intro", { version: escapeHtml(notice.version ?? ""), count: notice.pending })}</p>`,
+            `<p>${t("dashboard.notice.tags.what")}</p>`,
+            `<p>${t("dashboard.notice.tags.later")}</p>`,
+        ], true, { label: t("dashboard.notice.tags.migrate"), run: migrate });
+    }
+
     // One dialog at a time, the update notice first: an installation updated
     // from 1.2.x is by definition still configured through the environment, so
     // it gets both on its first visit, and what changed matters more than
-    // where the settings live now. The image name comes last: it is the one
-    // that can wait for the next pull.
+    // where the settings live now. The image name can wait for the next pull,
+    // and the tags come last of all: nothing is wrong while they wait.
     async function showNotices() {
         let notices;
         try {
@@ -362,6 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
         await showUpgradeNotice(notices["upgrade-1.3.0"]);
         await showDeprecationNotice(notices["env-config"]);
         await showLegacyImageNotice(notices["legacy-image"]);
+        await showTagMigrationNotice(notices["native-tags"]);
     }
 
     showNotices();
@@ -1934,6 +1995,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // The tags of a spool as Spoolman holds them. A native tag is the link on a
+    // Spoolman that knows them, and the only one once the extra field is no
+    // longer written, so it is named first with its format. The extra field is
+    // what an older Spoolman has and what a spool not migrated yet still carries.
+    function detailTags(spool) {
+        const native = (spool.tags ?? []).filter(tag => tag?.uid);
+        if (!native.length) return detailExtra(spool.extra?.tag);
+        return native.map(tag => detailText(tag.format ? `${tag.uid} (${tag.format})` : tag.uid)).join("<br>");
+    }
+
     // Which colours a slot is drawn in: the linked Spoolman spool's, and the ones
     // the printer reports for a slot that has no spool behind it.
     //
@@ -2169,7 +2240,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     [t("dashboard.detail.archived"), escapeHtml(t(spool.archived ? "dashboard.detail.yes" : "dashboard.detail.no")), textField("archived")],
                     [t("dashboard.detail.lotNumber"), detailText(spool.lot_nr), textField("lotNr")],
                     [t("dashboard.detail.comment"), detailText(spool.comment), textField("comment")],
-                    [t("dashboard.detail.tag"), detailExtra(spool.extra?.tag)],
+                    [t("dashboard.detail.tag"), detailTags(spool)],
                 ])}
 
                 <div class="sd-section">${escapeHtml(t("dashboard.detail.printer"))}</div>

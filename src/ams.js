@@ -679,6 +679,25 @@ function nativeTagKey(spool) {
 }
 
 /**
+ * The merge candidate a slot may still report once its links are known.
+ *
+ * A candidate is an offer to link the slot to a spool, so it ends where a link
+ * begins. The automatic merge is what made this visible: the candidate was
+ * found, merged and looked up again within one pass, and the slot then reported
+ * the spool it had just been linked to as a spool it could still be merged
+ * with, until something else changed the slot. A manual assignment is a link
+ * for the same purpose, and the slot offers to remove it rather than to merge.
+ *
+ * @param {object|null|undefined} candidate - what `findMergeableSpool()` found
+ * @param {object} links - whether the slot is linked by tag or by assignment
+ * @returns {object|null} the candidate, or null for a linked slot
+ */
+export function openMergeCandidate(candidate, { connectedViaTag = false, connectedViaMapping = false } = {}) {
+    if (connectedViaTag || connectedViaMapping) return null;
+    return candidate ?? null;
+}
+
+/**
  * Whether the Spoolman side changed in a way that should trigger reprocessing.
  *
  * Only the fields this service reacts to are compared: the tag link in both

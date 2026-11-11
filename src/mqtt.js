@@ -40,6 +40,7 @@ import {
     findMatchingExternalFilament,
     findMatchingInternalFilament,
     findMergeableSpool,
+    openMergeCandidate,
     haveSpoolDataChanged,
     hasTrayDataChanged,
     hasSpoolUiChanged,
@@ -2485,7 +2486,7 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
     const newUiSpool = {
         amsId,
         slot,
-        mergeableSpool,
+        mergeableSpool: openMergeCandidate(mergeableSpool, { connectedViaTag: found, connectedViaMapping: !!mappedSpool }),
         matchingInternalFilament,
         matchingExternalFilament,
         existingSpool,

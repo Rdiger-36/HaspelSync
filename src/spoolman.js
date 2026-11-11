@@ -1,9 +1,9 @@
 import got from "got";
 import { serverLogFilePath } from "./config.js";
-import { spoolmanUrl } from "./settings.js";
+import { settings, spoolmanUrl } from "./settings.js";
 import { state } from "./state.js";
 import { debug, trace } from "./logger.js";
-import { correctRemainInt } from "./ams.js";
+import { correctRemainInt, nativeTags, normalizeTagUid, planTagMigration, planTagCleanup, isTrayUuidTag, BAMBU_TAG_FORMAT } from "./ams.js";
 import { describeConnectionError, connectionErrorCode } from "./utils.js";
 
 /**
@@ -110,15 +110,19 @@ export async function getSpoolmanSpools() {
  * The tag lookup therefore has to see them, and only them: an archived spool is
  * never a merge candidate and never gets a location.
  *
+ * `nativeOnly` keeps the ones carrying a native tag, for an installation that
+ * does not archive on its own, see `archivedSpoolsForLookup()` in mqtt.js.
+ *
  * Returns an empty list on failure, like `getSpoolmanSpools()`, because it runs
  * beside it in the same update and a Spoolman outage already pauses processing.
  */
-export async function getArchivedSpoolmanSpools() {
+export async function getArchivedSpoolmanSpools({ nativeOnly = false } = {}) {
     try {
         const response = await got(`${spoolmanUrl()}/api/v1/spool`, {
             searchParams: { allow_archived: "true" },
         });
-        return JSON.parse(response.body).filter(spool => spool.archived);
+        const archived = JSON.parse(response.body).filter(spool => spool.archived);
+        return nativeOnly ? archived.filter(spool => nativeTags(spool).length > 0) : archived;
     } catch (error) {
         console.error("Server", serverLogFilePath, "Error fetching archived spools from Spoolman:", error.message);
         return [];
@@ -371,6 +375,125 @@ async function createExtraField() {
     }
 }
 
+/** The first Spoolman release whose spools carry native tags. */
+const NATIVE_TAGS_SINCE = [0, 27];
+
+/**
+ * Whether a Spoolman of this version knows native tags, `spool.tags[]` and the
+ * endpoints that link one. Anything that does not read as a version is taken
+ * as too old: writing `extra.tag` to a Spoolman that could have done better
+ * loses nothing, asking an old one for an endpoint it lacks fails every write.
+ *
+ * @param {*} version - `version` from `/api/v1/info`
+ * @returns {boolean}
+ */
+export function supportsNativeTags(version) {
+    const match = /^v?(\d+)\.(\d+)/.exec(String(version ?? ""));
+    if (!match) return false;
+    const [major, minor] = [Number(match[1]), Number(match[2])];
+    return major > NATIVE_TAGS_SINCE[0] || (major === NATIVE_TAGS_SINCE[0] && minor >= NATIVE_TAGS_SINCE[1]);
+}
+
+/**
+ * Asks Spoolman for its version and notes whether it knows native tags.
+ *
+ * Runs with every Spoolman bootstrap and before a migration, never per write:
+ * the answer changes only when Spoolman is updated. A failed request counts as
+ * "no", which keeps the service on `extra.tag`, the link every version reads.
+ *
+ * @returns {Promise<boolean>} whether native tags can be used
+ */
+export async function detectNativeTagSupport() {
+    try {
+        const response = await got(`${spoolmanUrl()}/api/v1/info`, { timeout: { request: 5000 }, retry: { limit: 0 } });
+        const version = JSON.parse(response.body)?.version ?? null;
+        state.spoolmanVersion = version;
+        state.spoolmanNativeTags = supportsNativeTags(version);
+    } catch (error) {
+        console.error("Server", serverLogFilePath, "Could not read the Spoolman version, staying on extra.tag:", error.message);
+        state.spoolmanVersion = null;
+        state.spoolmanNativeTags = false;
+    }
+    return state.spoolmanNativeTags;
+}
+
+/** Whether the connected Spoolman knows native tags, false until it was asked. */
+export function nativeTagsAvailable() {
+    return state.spoolmanNativeTags === true;
+}
+
+/**
+ * Whether `extra.tag` is written next to the native tag.
+ *
+ * Always for a Spoolman without native tags, where it is the only link there
+ * is, and otherwise for as long as the setting says so.
+ */
+export function writesLegacyTag() {
+    return settings.WRITE_EXTRA_TAG || !nativeTagsAvailable();
+}
+
+/** `extra.tag` as Spoolman stores it, a JSON encoded string. An empty one clears it. */
+function legacyTagExtra(trayUuid) {
+    return { extra: { tag: JSON.stringify(trayUuid ?? "") } };
+}
+
+/** Links a tag to a spool as a native Bambu Lab tag. Rethrows. */
+async function linkNativeTag(spoolId, uid) {
+    await got.post(`${spoolmanUrl()}/api/v1/spool/${spoolId}/tag`, {
+        json: { uid, format: BAMBU_TAG_FORMAT },
+        responseType: "json",
+    });
+}
+
+/**
+ * Links the slot's `tray_uuid` to a spool natively, where Spoolman can.
+ *
+ * A spool has to end up identifiable one way or the other, or the next AMS
+ * update takes it for unknown and creates it again. So when the native link
+ * is refused and `extra.tag` was not written, it is written now. Only that
+ * last resort failing is an error, and it is thrown for the caller to report.
+ *
+ * @param {object} spoolData - the UI spool, carrying the slot
+ * @param {number} spoolId - the Spoolman spool to link
+ * @param {boolean} legacyWritten - whether `extra.tag` already holds the tag
+ */
+async function linkSlotTag(spoolData, spoolId, legacyWritten) {
+    if (!nativeTagsAvailable()) return;
+
+    try {
+        await linkNativeTag(spoolId, spoolData.slot.tray_uuid);
+    } catch (error) {
+        logSpoolmanFailure(spoolData, `Native tag link for Spool-ID ${spoolId}`, error);
+        if (legacyWritten) return;
+
+        console.log(spoolData.printerName, spoolData.logFilePath, `    Writing extra.tag for Spool-ID ${spoolId} instead, so the spool stays linked to its slot`);
+        await got.patch(`${spoolmanUrl()}/api/v1/spool/${spoolId}`, { json: legacyTagExtra(spoolData.slot.tray_uuid) });
+    }
+}
+
+/**
+ * Takes the native Bambu Lab tags of other chips off a spool that is about to
+ * be merged with a slot.
+ *
+ * Merging used to overwrite `extra.tag`, which is what made the spool stop
+ * answering to its previous chip. A native tag is added rather than replaced,
+ * so without this the record would answer to two chips at once. Only a
+ * `tray_uuid` link is taken off, see `isTrayUuidTag()`: every other tag is
+ * somebody else's and stays.
+ */
+async function unlinkOtherBambuTags(spoolData, spool) {
+    const keep = normalizeTagUid(spoolData.slot.tray_uuid);
+
+    for (const tag of nativeTags(spool)) {
+        if (!isTrayUuidTag(tag) || tag.uid === keep) continue;
+        try {
+            await got.delete(`${spoolmanUrl()}/api/v1/spool/${spool.id}/tag/${encodeURIComponent(tag.uid)}`);
+        } catch (error) {
+            logSpoolmanFailure(spoolData, `Removing the previous tag from Spool-ID ${spool.id}`, error);
+        }
+    }
+}
+
 /**
  * Creates a spool for an AMS slot whose filament already exists in Spoolman,
  * tagged with the slot's tray_uuid so it is recognised from then on.
@@ -388,7 +511,8 @@ export async function createSpool(spoolData) {
     trace("spoolman", spoolData.printerName, spoolData.logFilePath, "    Payload:", JSON.stringify(postData));
 
     try {
-        await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: postData });
+        const response = await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: postData, responseType: "json" });
+        await linkSlotTag(spoolData, response.body.id, !!postData.extra);
         console.log(spoolData.printerName, spoolData.logFilePath, `    Spool successfully created for Slot => ${spoolData.amsId}!`);
         return { ok: true };
     } catch (error) {
@@ -402,7 +526,8 @@ export async function createSpool(spoolData) {
  * Both creation paths send the same spool, they only differ in where the
  * filament id comes from: an existing Spoolman filament, or one created moments
  * earlier. The tag is the slot's tray_uuid, JSON encoded, because that is what
- * later identifies this spool as the one in the slot.
+ * later identifies this spool as the one in the slot. It is left out where the
+ * native tag alone carries the link, see `writesLegacyTag()`.
  *
  * @param {object} spoolData - the UI spool, carrying the slot
  * @param {number|string} filamentId - the Spoolman filament to attach it to
@@ -414,7 +539,7 @@ export function buildSpoolPayload(spoolData, filamentId) {
         initial_weight: Number(spoolData.slot.tray_weight),
         used_weight: usedWeightFromSlot(spoolData.slot),
         first_used: Date.now(),
-        extra: { tag: `"${spoolData.slot.tray_uuid}"` },
+        ...(writesLegacyTag() ? legacyTagExtra(spoolData.slot.tray_uuid) : {}),
     };
 }
 
@@ -501,7 +626,8 @@ export async function createFilamentAndSpool(spoolData) {
         debug("spoolman", spoolData.printerName, spoolData.logFilePath, "    Sending POST request to:", `${spoolmanUrl()}/api/v1/spool`);
         trace("spoolman", spoolData.printerName, spoolData.logFilePath, "    Payload:", JSON.stringify(spoolPayload));
 
-        await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: spoolPayload, responseType: "json" });
+        const response = await got.post(`${spoolmanUrl()}/api/v1/spool`, { json: spoolPayload, responseType: "json" });
+        await linkSlotTag(spoolData, response.body.id, !!spoolPayload.extra);
         console.log(spoolData.printerName, spoolData.logFilePath, `    Filament and Spool successfully created for Slot => ${spoolData.amsId}!`);
         return { ok: true };
     } catch (error) {
@@ -513,24 +639,183 @@ export async function createFilamentAndSpool(spoolData) {
 }
 
 /**
- * Connects an existing untagged Spoolman spool to an AMS slot by patching the
- * slot's tray_uuid into its extra.tag. Nothing else about the spool is touched.
+ * Connects an existing Spoolman spool to an AMS slot by giving it the slot's
+ * tray_uuid, as a native tag, as extra.tag, or both. Nothing else about the
+ * spool is touched.
+ *
+ * Where extra.tag is not written any more, one left over from a previous chip
+ * is cleared: it is still read for spools that were never migrated, so the
+ * record would keep answering to the old chip as well.
  *
  * @param {object} spoolData - the UI spool, carrying slot and mergeableSpool
  * @returns {Promise<{ok: boolean, error?: string}>} what became of the write
  */
 export async function mergeSpool(spoolData) {
-    const postData = { extra: { tag: `\"${spoolData.slot.tray_uuid}\"` } };
+    const spool = spoolData.mergeableSpool;
+    const legacy = writesLegacyTag();
+    const postData = legacy ? legacyTagExtra(spoolData.slot.tray_uuid) : legacyTagExtra("");
+    const patchNeeded = legacy || !!spool.extra?.tag;
 
-    debug("spoolman", spoolData.printerName, spoolData.logFilePath, "    Sending PATCH request to:", `${spoolmanUrl()}/api/v1/spool/${spoolData.mergeableSpool.id}`);
+    debug("spoolman", spoolData.printerName, spoolData.logFilePath, "    Sending PATCH request to:", `${spoolmanUrl()}/api/v1/spool/${spool.id}`);
     trace("spoolman", spoolData.printerName, spoolData.logFilePath, "    Payload:", JSON.stringify(postData));
 
     try {
-        await got.patch(`${spoolmanUrl()}/api/v1/spool/${spoolData.mergeableSpool.id}`, { json: postData });
-        console.log(spoolData.printerName, spoolData.logFilePath, `    Spool successfully merged with Spool-ID ${spoolData.mergeableSpool.id} => ${spoolData.mergeableSpool.filament.name}`);
+        if (patchNeeded) await got.patch(`${spoolmanUrl()}/api/v1/spool/${spool.id}`, { json: postData });
+        if (nativeTagsAvailable()) await unlinkOtherBambuTags(spoolData, spool);
+        await linkSlotTag(spoolData, spool.id, legacy);
+        console.log(spoolData.printerName, spoolData.logFilePath, `    Spool successfully merged with Spool-ID ${spool.id} => ${spool.filament.name}`);
         return { ok: true };
     } catch (error) {
         return failed(spoolData, "Spool merge", error);
+    }
+}
+
+/**
+ * Every spool, archived ones included. Rethrows: it backs the migration, which
+ * must not mistake an outage for "nothing to migrate".
+ */
+async function getAllSpoolmanSpools() {
+    const response = await got(`${spoolmanUrl()}/api/v1/spool`, { searchParams: { allow_archived: "true" } });
+    return JSON.parse(response.body);
+}
+
+/**
+ * How far the spools are from carrying their tag natively.
+ *
+ * `redundant` counts the spools whose `extra.tag` only repeats their native
+ * tag, and `legacyWritten` says whether that field is still being written,
+ * which is what decides whether clearing it would last.
+ *
+ * @returns {Promise<{supported: boolean, version: string|null, total: number, migrated: number, pending: number, conflicts: object[], redundant: number, legacyWritten: boolean}>}
+ */
+export async function tagMigrationStatus() {
+    const supported = await detectNativeTagSupport();
+    const plan = planTagMigration(await getAllSpoolmanSpools());
+    state.tagMigrationPending = plan.pending.length;
+
+    return {
+        supported,
+        version: state.spoolmanVersion,
+        total: plan.pending.length + plan.conflicts.length + plan.migrated,
+        migrated: plan.migrated,
+        pending: plan.pending.length,
+        conflicts: plan.conflicts,
+        redundant: plan.redundant.length,
+        legacyWritten: writesLegacyTag(),
+    };
+}
+
+/**
+ * Gives every spool that carries only `extra.tag` the same tag natively.
+ *
+ * `extra.tag` is left where it is: it costs nothing, an older version of this
+ * service reads nothing else, and taking it away is the one step of this that
+ * could not be undone. One spool that cannot be linked does not stop the rest;
+ * it is reported, and so is every spool the plan already knew it could not
+ * migrate. Never runs twice at once.
+ *
+ * @returns {Promise<{ok: boolean, error?: string, code?: string, migrated?: number, failed?: object[], conflicts?: object[]}>}
+ */
+export async function migrateSpoolTags() {
+    if (state.tagMigrationRunning) {
+        return { ok: false, error: "A tag migration is already running", code: "tagMigrationRunning" };
+    }
+    state.tagMigrationRunning = true;
+
+    try {
+        if (!(await detectNativeTagSupport())) {
+            return {
+                ok: false,
+                error: `Spoolman ${state.spoolmanVersion ?? "of an unknown version"} has no native tags, version 0.27.0 or newer is needed`,
+                code: "nativeTagsUnsupported",
+                params: { version: state.spoolmanVersion ?? "?" },
+            };
+        }
+
+        const plan = planTagMigration(await getAllSpoolmanSpools());
+        const failures = [];
+        let migrated = 0;
+
+        for (const { id, uid } of plan.pending) {
+            try {
+                await linkNativeTag(id, uid);
+                migrated++;
+            } catch (error) {
+                logSpoolmanFailure(SERVER, `Tag migration of Spool-ID ${id}`, error);
+                failures.push({ id, uid, error: error.response?.body?.message || error.message });
+            }
+        }
+
+        console.log("Server", serverLogFilePath,
+            `Tag migration: ${migrated} of ${plan.pending.length} spools linked natively, ${failures.length} failed, ${plan.conflicts.length} skipped because another spool holds their tag`);
+
+        state.tagMigrationPending = failures.length;
+        return { ok: true, migrated, failed: failures, conflicts: plan.conflicts };
+    } catch (error) {
+        return failed(SERVER, "Tag migration", error);
+    } finally {
+        state.tagMigrationRunning = false;
+    }
+}
+
+/**
+ * Clears `extra.tag` on every spool that carries the same tag natively.
+ *
+ * The one step of the move to native tags that cannot be undone from here, so
+ * it is never part of the migration and only ever runs on request. Refused
+ * while `extra.tag` is still written: the next merge would put the field back
+ * on that spool, and an installation that still writes it has said something
+ * else reads it. A spool that is pending or in conflict is not touched, see
+ * `planTagCleanup()`. Shares the guard of the migration, the two must not run
+ * over the same spools at once.
+ *
+ * @returns {Promise<{ok: boolean, error?: string, code?: string, removed?: number, failed?: object[]}>}
+ */
+export async function removeLegacyTags() {
+    if (state.tagMigrationRunning) {
+        return { ok: false, error: "A tag migration is already running", code: "tagMigrationRunning" };
+    }
+    state.tagMigrationRunning = true;
+
+    try {
+        if (!(await detectNativeTagSupport())) {
+            return {
+                ok: false,
+                error: `Spoolman ${state.spoolmanVersion ?? "of an unknown version"} has no native tags, version 0.27.0 or newer is needed`,
+                code: "nativeTagsUnsupported",
+                params: { version: state.spoolmanVersion ?? "?" },
+            };
+        }
+        if (writesLegacyTag()) {
+            return {
+                ok: false,
+                error: "extra.tag is still written, switch \"Also write extra.tag\" off first",
+                code: "legacyTagStillWritten",
+            };
+        }
+
+        const redundant = planTagCleanup(await getAllSpoolmanSpools());
+        const failures = [];
+        let removed = 0;
+
+        for (const { id, uid } of redundant) {
+            try {
+                await got.patch(`${spoolmanUrl()}/api/v1/spool/${id}`, { json: legacyTagExtra(null) });
+                removed++;
+            } catch (error) {
+                logSpoolmanFailure(SERVER, `Clearing extra.tag of Spool-ID ${id}`, error);
+                failures.push({ id, uid, error: error.response?.body?.message || error.message });
+            }
+        }
+
+        console.log("Server", serverLogFilePath,
+            `Tag cleanup: extra.tag cleared on ${removed} of ${redundant.length} spools that carry the same tag natively, ${failures.length} failed`);
+
+        return { ok: true, removed, failed: failures };
+    } catch (error) {
+        return failed(SERVER, "Tag cleanup", error);
+    } finally {
+        state.tagMigrationRunning = false;
     }
 }
 

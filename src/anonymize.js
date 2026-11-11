@@ -42,8 +42,11 @@ const BAMBU_SERIAL = /\b(?=[0-9A-Z]{15}\b)[0-9A-Z]*\d[0-9A-Z]*\b/g;
 const BRACKETED_TAG = /\[\[ ([^\]]*?) \]\]/g;
 // The same value in the debug dumps, which are whole JSON documents: the slot
 // data carries it as `tray_uuid`, the Spoolman records as an `extra.tag` whose
-// value is the JSON encoded string, so the quotes around it are escaped.
-const JSON_TAG = /("(?:tray_uuid|tag)"\s*:\s*")((?:\\"|[^"])*)(")/g;
+// value is the JSON encoded string, so the quotes around it are escaped. A
+// native Spoolman tag carries it as `uid`, and that one is not always 32
+// characters: a sticker or a chip number somebody linked is 8 to 16, which
+// only the key gives away.
+const JSON_TAG = /("(?:tray_uuid|tag|uid)"\s*:\s*")((?:\\"|[^"])*)(")/g;
 // A tag of a current AMS is 32 hex characters, which nothing else in a log is,
 // so this catches one wherever it turns up without an anchor to hold on to.
 //

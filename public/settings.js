@@ -139,6 +139,11 @@ document.addEventListener("DOMContentLoaded", () => {
     loadSystemInfo();
     loadUpdate();
 
+    document.getElementById("check-tags").addEventListener("click", checkSpoolTags);
+    document.getElementById("migrate-tags").addEventListener("click", migrateSpoolTags);
+    document.getElementById("cleanup-tags").addEventListener("click", cleanupSpoolTags);
+    checkSpoolTags();
+
     const eventSource = new EventSource("./api/events");
     eventSource.onmessage = event => {
         const data = JSON.parse(event.data);
@@ -1042,6 +1047,146 @@ async function testSpoolmanConnection() {
             ${result.url ? `<span class="set-test-reason">${escapeHtml(result.url)}</span>` : ""}`;
     } catch (err) {
         output.innerHTML = testPill("Spoolman", { ok: false, error: err.message });
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/* ---- Spool tags ----
+ *
+ * Whether the spools carry their tag natively, and the button that makes them.
+ * The server counts and decides, see planTagMigration() in src/ams.js; this
+ * card words the answer.
+ */
+
+/** One line of the tag card, as a note. */
+function tagNote(text, warn = false) {
+    return `<p class="set-note${warn ? " set-note-warn" : ""}">${escapeHtml(text)}</p>`;
+}
+
+/**
+ * Paints what `/api/spoolman/tags` answered.
+ *
+ * The migrate button is offered only where it would do something: a Spoolman
+ * with native tags and at least one spool to link. A conflict is listed with
+ * both spools, because resolving it is a decision in Spoolman, which of the two
+ * records the tag belongs to, and nothing this page can make.
+ *
+ * Clearing the extra field is offered last and only where it would last: every
+ * spool is linked natively, the field is no longer written, and it still sits
+ * on spools where it says nothing the native tag does not. The server refuses
+ * the rest anyway, see removeLegacyTags() in src/spoolman.js.
+ */
+function renderTagStatus(status) {
+    const lines = [];
+    const canCleanUp = status.supported && !status.legacyWritten && status.pending === 0 && status.redundant > 0;
+
+    if (!status.supported) {
+        lines.push(tagNote(t("settings.tags.unsupported", { version: status.version ?? "?" })));
+    } else if (status.total === 0) {
+        lines.push(tagNote(t("settings.tags.none")));
+    } else if (status.pending === 0 && status.conflicts.length === 0) {
+        lines.push(tagNote(t("settings.tags.allNative", { total: status.total })));
+    } else if (status.pending > 0) {
+        // With nothing left to link, the conflicts below are the whole answer
+        lines.push(tagNote(t("settings.tags.pending", { pending: status.pending, total: status.total }), true));
+    }
+
+    if (status.supported && status.conflicts.length) {
+        lines.push(tagNote(t("settings.tags.conflicts", { count: status.conflicts.length }), true));
+        for (const conflict of status.conflicts) {
+            lines.push(tagNote(t("settings.tags.conflict", { id: conflict.id, heldBy: conflict.heldBy })));
+        }
+    }
+
+    if (canCleanUp) lines.push(tagNote(t("settings.tags.redundant", { count: status.redundant })));
+
+    const cleanup = document.getElementById("cleanup-tags");
+    cleanup.hidden = !canCleanUp;
+    cleanup.dataset.count = status.redundant ?? 0;
+
+    document.getElementById("tags-status").innerHTML = lines.join("");
+    document.getElementById("migrate-tags").hidden = !(status.supported && status.pending > 0);
+}
+
+/** Asks the server how the tags stand. Runs once on load and on the button. */
+async function checkSpoolTags() {
+    const button = document.getElementById("check-tags");
+    const output = document.getElementById("tags-result");
+    button.disabled = true;
+    output.textContent = t("settings.tags.checking");
+
+    try {
+        renderTagStatus(await fetchJson("./api/spoolman/tags"));
+        output.textContent = "";
+    } catch (err) {
+        document.getElementById("tags-status").innerHTML = "";
+        document.getElementById("migrate-tags").hidden = true;
+        document.getElementById("cleanup-tags").hidden = true;
+        output.innerHTML = `<span class="set-test-reason set-test-failed">${escapeHtml(err.message)}</span>`;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
+ * Runs the migration and then reads the state again, so the card shows what is
+ * true now rather than what the run reported. What Spoolman refused is listed
+ * below it with its reason.
+ */
+async function migrateSpoolTags() {
+    const button = document.getElementById("migrate-tags");
+    const output = document.getElementById("tags-result");
+    button.disabled = true;
+    output.textContent = t("settings.tags.migrating");
+
+    try {
+        const result = await sendJson("./api/spoolman/tags/migrate", "POST", {});
+        await checkSpoolTags();
+
+        const failed = (result.failed ?? [])
+            .map(entry => tagNote(t("settings.tags.failed", { id: entry.id, error: entry.error }), true));
+        document.getElementById("tags-status").insertAdjacentHTML("beforeend", failed.join(""));
+        output.innerHTML = `<span class="pill ${failed.length ? "pill-legacy" : "pill-ok"}">${escapeHtml(t("settings.tags.migrated", { migrated: result.migrated }))}</span>`;
+    } catch (err) {
+        output.innerHTML = `<span class="set-test-reason set-test-failed">${escapeHtml(err.message)}</span>`;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
+ * Clears the extra field where the native tag says the same, after asking.
+ *
+ * The question is the point of this function: it is the one step on this card
+ * that takes something away, and what it breaks is not on this page but in
+ * whatever else still reads the field.
+ */
+async function cleanupSpoolTags() {
+    const button = document.getElementById("cleanup-tags");
+    const output = document.getElementById("tags-result");
+
+    const confirmed = await confirmAction({
+        title: t("settings.tags.cleanupTitle"),
+        html: `<p>${escapeHtml(t("settings.tags.cleanupText", { count: button.dataset.count }))}</p>
+               <p class="set-note set-note-warn">${escapeHtml(t("settings.tags.cleanupWarn"))}</p>`,
+        okLabel: t("settings.tags.cleanupOk"),
+    });
+    if (!confirmed) return;
+
+    button.disabled = true;
+    output.textContent = t("settings.tags.cleaning");
+
+    try {
+        const result = await sendJson("./api/spoolman/tags/cleanup", "POST", {});
+        await checkSpoolTags();
+
+        const failed = (result.failed ?? [])
+            .map(entry => tagNote(t("settings.tags.failed", { id: entry.id, error: entry.error }), true));
+        document.getElementById("tags-status").insertAdjacentHTML("beforeend", failed.join(""));
+        output.innerHTML = `<span class="pill ${failed.length ? "pill-legacy" : "pill-ok"}">${escapeHtml(t("settings.tags.cleaned", { removed: result.removed }))}</span>`;
+    } catch (err) {
+        output.innerHTML = `<span class="set-test-reason set-test-failed">${escapeHtml(err.message)}</span>`;
     } finally {
         button.disabled = false;
     }

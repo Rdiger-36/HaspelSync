@@ -62,6 +62,22 @@
 
                     <section class="set-section" data-section="spoolman" hidden>
                         <div data-group="spoolman"></div>
+
+                        <!-- Hand written like the service card: it shows a state
+                             and offers an action, and stores no setting. -->
+                        <div class="set-card" id="tags-card">
+                            <div class="set-card-head">
+                                <h2 data-i18n="settings.tags.title">Spool tags</h2>
+                            </div>
+                            <p class="set-note" data-i18n="settings.tags.note">Spoolman 0.27.0 and newer hold the tag of a spool natively. Spools linked before that carry it in the extra field "tag", which is still read. The migration adds the native tag and leaves the extra field in place.</p>
+                            <div id="tags-status"></div>
+                            <div class="set-test-row">
+                                <button class="btn btn-small" type="button" id="check-tags" data-i18n="settings.tags.check">Check tags</button>
+                                <button class="btn btn-small btn-primary" type="button" id="migrate-tags" data-i18n="settings.tags.migrate" hidden>Migrate now</button>
+                                <button class="btn btn-small" type="button" id="cleanup-tags" data-i18n="settings.tags.cleanup" hidden>Clear extra fields</button>
+                                <span class="set-test-result" id="tags-result"></span>
+                            </div>
+                        </div>
                     </section>
 
                     <section class="set-section" data-section="tracking" hidden>

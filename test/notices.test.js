@@ -112,3 +112,38 @@ test("a container from the old image name is told so, in the log on every start"
     assert.deepEqual(legacyImageLogLines(legacyImageNotice("haspelsync")), []);
     assert.deepEqual(legacyImageLogLines(legacyImageNotice(null)), []);
 });
+
+test("the tag notice needs a Spoolman with native tags and a spool left to migrate", async () => {
+    const { state } = await import("../src/state.js");
+    const before = { native: state.spoolmanNativeTags, pending: state.tagMigrationPending, version: state.spoolmanVersion };
+    const notice = async () => (await call(`${app.url}/api/notices`)).body["native-tags"];
+
+    try {
+        // Nobody looked yet
+        state.spoolmanNativeTags = null;
+        state.tagMigrationPending = null;
+        assert.equal((await notice()).active, false);
+
+        // An old Spoolman has nowhere to migrate to, however many spools wait
+        state.spoolmanNativeTags = false;
+        state.tagMigrationPending = 3;
+        assert.equal((await notice()).active, false);
+
+        state.spoolmanNativeTags = true;
+        state.spoolmanVersion = "0.27.1";
+        assert.deepEqual(await notice(), { active: true, acknowledged: false, pending: 3, version: "0.27.1" });
+
+        state.tagMigrationPending = 0;
+        assert.equal((await notice()).active, false);
+
+        // Said once: the dismissal is stored like the others
+        state.tagMigrationPending = 3;
+        assert.equal((await call(`${app.url}/api/notices/native-tags/ack`, "POST", {})).status, 200);
+        assert.equal((await notice()).acknowledged, true);
+        assert.equal(app.readJson("settings.json").notices["native-tags"], true);
+    } finally {
+        state.spoolmanNativeTags = before.native;
+        state.tagMigrationPending = before.pending;
+        state.spoolmanVersion = before.version;
+    }
+});

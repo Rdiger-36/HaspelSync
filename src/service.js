@@ -3,7 +3,7 @@ import { RESTART_EXIT_CODE } from "./supervisor.js";
 import { settingsLoadIssues, spoolmanUrl } from "./settings.js";
 import { state } from "./state.js";
 import { printers, ensurePrinterLogFile } from "./printers.js";
-import { checkAndSetExtraField } from "./spoolman.js";
+import { checkAndSetExtraField, detectNativeTagSupport, tagMigrationStatus } from "./spoolman.js";
 import { closeMqtt, monitorSpoolman, monitorSpoolmanBackground, monitorPrinters } from "./mqtt.js";
 
 /**
@@ -42,9 +42,39 @@ async function bootstrapSpoolman() {
             return;
         }
 
+        // Before the first AMS update, which already decides how a new spool
+        // is linked.
+        const nativeTags = await detectNativeTagSupport();
+        console.log("Server", serverLogFilePath, nativeTags
+            ? `Spoolman ${state.spoolmanVersion} knows native tags, spools are linked through them`
+            : `Spoolman ${state.spoolmanVersion ?? "of an unknown version"} has no native tags, spools are linked through extra.tag alone`);
+
+        if (nativeTags) await reportPendingTagMigration();
+
         startMonitors();
     } finally {
         state.spoolmanBootstrapRunning = false;
+    }
+}
+
+/**
+ * Counts the spools still linked through extra.tag alone and says so in the
+ * log. The count is what the dashboard notice reads, see tagnotice.js. A
+ * failure here holds nothing back: the notice simply stays quiet.
+ */
+async function reportPendingTagMigration() {
+    try {
+        const { pending, conflicts } = await tagMigrationStatus();
+        if (pending > 0) {
+            console.log("Server", serverLogFilePath,
+                `${pending} spools are linked through extra.tag alone. They keep working, and Settings, Spoolman in the Web UI migrates them to native tags.`);
+        }
+        if (conflicts.length > 0) {
+            console.log("Server", serverLogFilePath,
+                `${conflicts.length} spools carry a tag that another spool already holds natively and cannot be migrated, see Settings, Spoolman.`);
+        }
+    } catch (error) {
+        console.error("Server", serverLogFilePath, "Could not check the spool tags:", error.message);
     }
 }
 
@@ -101,6 +131,9 @@ export function restartSpoolmanConnection() {
     state.spoolmanStatus = "Disconnected";
     state.vendorID = null;
     state.lastSpoolData = null;
+    state.spoolmanVersion = null;
+    state.spoolmanNativeTags = null;
+    state.tagMigrationPending = null;
     // Force a full rebuild of the slot data, it was matched against spools of
     // the previous instance.
     for (const printer of printers) {

@@ -8,6 +8,7 @@ import { sleep, formatDate, formatInterval, offlineBackoff, convertAMSandSlot, a
 import {
     getSpoolmanSpools,
     getArchivedSpoolmanSpools,
+    nativeTagsAvailable,
     getSpoolmanInternalFilaments,
     getSpoolmanExternalFilaments,
     createSpool,
@@ -45,7 +46,7 @@ import {
     consumptionCandidate,
     matchConsumption,
     holderSwapIndices,
-    spoolTag,
+    findSpoolByTrayUuid,
     modelCanDry,
 } from "./ams.js";
 import { toClientSpool, loadedSlotIds } from "./uispool.js";
@@ -1923,10 +1924,7 @@ async function handleMqttMessage(printer, topic, message) {
 
                         let externalFilaments = await getSpoolmanExternalFilaments();
                         let internalFilaments = await getSpoolmanInternalFilaments();
-                        // Only fetched when the setting can produce archived
-                        // spools in the first place, so an install that does not
-                        // archive pays nothing for the guard.
-                        let archivedSpools = settings.ARCHIVE_EMPTY_SPOOLS ? await getArchivedSpoolmanSpools() : [];
+                        let archivedSpools = await archivedSpoolsForLookup();
 
                         const spoolsChanged = await haveSpoolDataChanged(spools, state.lastSpoolData);
                         // Legacy mode leaves the holder out. Its weight comes
@@ -1970,7 +1968,7 @@ async function handleMqttMessage(printer, topic, message) {
                                         spools = await getSpoolmanSpools();
                                         externalFilaments = await getSpoolmanExternalFilaments();
                                         internalFilaments = await getSpoolmanInternalFilaments();
-                                        if (settings.ARCHIVE_EMPTY_SPOOLS) archivedSpools = await getArchivedSpoolmanSpools();
+                                        archivedSpools = await archivedSpoolsForLookup();
                                     }
                                 }
                             }
@@ -2235,8 +2233,12 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
     matchingInternalFilament = findMatchingInternalFilament(matchingExternalFilament, internalFilaments);
 
     if (spools.length !== 0) {
+        // Decided over the whole list rather than per record: a native tag
+        // beats an extra.tag naming another spool, see findSpoolByTrayUuid().
+        const connectedSpool = findSpoolByTrayUuid(spools, slot.tray_uuid);
+
         for (const spool of spools) {
-            if (spoolTag(spool) === slot.tray_uuid) {
+            if (spool === connectedSpool) {
                 trace("spoolman", printer.name, printer.logFilePath, " Connected Spool found: " + JSON.stringify(spool));
                 found = true;
 
@@ -2336,7 +2338,7 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
         const newUiSpool = buildArchivedSpool(printer, amsId, slot, archivedSpool);
         releasePreviousSpool(locationSync, amsId, prevByAmsId, spools);
         if (hasSpoolUiChanged(newUiSpool, prevByAmsId[amsId])) {
-            console.log(printer.name, printer.logFilePath, ` [${amsId}] ${slot.tray_sub_brands} ${slot.tray_color} [[ ${slot.tray_uuid} ]] => Spool-ID ${archivedSpool.id} (archived, empty)`);
+            console.log(printer.name, printer.logFilePath, ` [${amsId}] ${slot.tray_sub_brands} ${slot.tray_color} [[ ${slot.tray_uuid} ]] => Spool-ID ${archivedSpool.id} (archived)`);
         }
         pushSlotUpdate(printer, newUiSpool, prevByAmsId);
         return false;
@@ -2446,7 +2448,7 @@ async function processSlot(printer, ams, slot, spools, archivedSpools, externalF
         // has already been refreshed to include it).
         if (mutated) {
             const freshSpools = await getSpoolmanSpools();
-            const linked = freshSpools.find(s => spoolTag(s) === slot.tray_uuid);
+            const linked = findSpoolByTrayUuid(freshSpools, slot.tray_uuid);
             if (linked) {
                 existingSpool = linked;
                 found = true;
@@ -2607,7 +2609,28 @@ function autoAssignThirdPartySpool(printer, amsId, slot, spools) {
 }
 
 /**
- * The spool in `list` whose Spoolman `extra.tag` holds this slot's `tray_uuid`.
+ * The archived spools a slot has to be checked against before anything is
+ * merged or created for it.
+ *
+ * All of them while this service archives empty spools, which is what puts a
+ * spool into the archive while it still sits in its slot. Without that setting
+ * nothing was fetched, so an install that does not archive paid nothing for the
+ * guard. A native tag changes that: Spoolman allows it on one record only, the
+ * archived ones included, so a spool archived by hand keeps the tag for itself.
+ * The slot would get a new spool that can never be linked natively. Those are
+ * therefore looked at wherever native tags exist, and only those, so a spool
+ * archived by hand with nothing but extra.tag behaves as it always did.
+ *
+ * @returns {Promise<object[]>}
+ */
+async function archivedSpoolsForLookup() {
+    if (settings.ARCHIVE_EMPTY_SPOOLS) return getArchivedSpoolmanSpools();
+    if (nativeTagsAvailable()) return getArchivedSpoolmanSpools({ nativeOnly: true });
+    return [];
+}
+
+/**
+ * The spool in `list` whose native or legacy tag matches this slot's `tray_uuid`.
  *
  * The tag is stored JSON encoded, and a hand edited one that is not decodes to
  * nothing rather than throwing here, which would otherwise take down the whole
@@ -2618,9 +2641,7 @@ function autoAssignThirdPartySpool(printer, amsId, slot, spools) {
  * @returns {object|null}
  */
 function spoolWithTag(list, trayUuid) {
-    if (!trayUuid) return null;
-
-    return (list || []).find(spool => spoolTag(spool) === trayUuid) || null;
+    return findSpoolByTrayUuid(list, trayUuid);
 }
 
 /**

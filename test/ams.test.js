@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag } from "../src/ams.js";
+import { correctRemainInt, haveSpoolDataChanged, slotIsOccupied, extractComparableTrayData, hasTrayDataChanged, findMergeableSpool, slotIsBusy, processData, findExistingSpool, findMatchingExternalFilament, spoolTag, spoolMatchesTrayUuid, normalizeTagUid, findSpoolByTrayUuid, hasBambuTag, planTagMigration, planTagCleanup } from "../src/ams.js";
 import { slotColors } from "../src/utils.js";
+import { settings } from "../src/settings.js";
 
 test("correctRemainInt passes through a full-size spool unchanged", () => {
     assert.equal(correctRemainInt(63, 1000, "PLA"), 63);
@@ -31,6 +32,36 @@ const spool = (id, tag, remaining) => ({
     remaining_weight: remaining,
     used_weight: 1000 - remaining,
     filament: { id, name: "Black", material: "PLA" },
+});
+
+test("spoolMatchesTrayUuid finds one tray UUID among three native tags", () => {
+    const registered = {
+        tags: [
+            { uid: "04AABBCC", format: "ntag" },
+            { uid: "AABBCC1122334455", format: "bambu" },
+            { uid: "04DDEEFF", format: "ntag" },
+        ],
+    };
+    assert.equal(spoolMatchesTrayUuid(registered, "aabbcc1122334455"), true);
+    assert.equal(spoolMatchesTrayUuid(registered, "AABB-CC11-2233-4455"), true);
+    assert.equal(spoolMatchesTrayUuid(registered, "NOT_MATCHED"), false);
+});
+
+test("spoolMatchesTrayUuid retains legacy tag compatibility", () => {
+    assert.equal(spoolMatchesTrayUuid(spool(1, "AABBCC", 800), "AABBCC"), true);
+    assert.equal(spoolMatchesTrayUuid({ tags: [] }, "AABBCC"), false);
+});
+
+test("haveSpoolDataChanged detects native tag additions", async () => {
+    const before = { ...spool(1, "AAA", 800), tags: [] };
+    const after = { ...spool(1, "AAA", 800), tags: [{ uid: "AABBCC", format: "bambu" }] };
+    assert.equal(await haveSpoolDataChanged([after], [before]), true);
+});
+
+test("haveSpoolDataChanged treats reordered native tags as unchanged", async () => {
+    const first = { ...spool(1, "AAA", 800), tags: [{ uid: "AABB" }, { uid: "CCDD" }] };
+    const second = { ...spool(1, "AAA", 800), tags: [{ uid: "CCDD" }, { uid: "AABB" }] };
+    assert.equal(await haveSpoolDataChanged([first], [second]), false);
 });
 
 test("haveSpoolDataChanged treats an unseeded baseline as changed", async () => {
@@ -437,4 +468,133 @@ test("a spool with a tag that is not JSON is skipped rather than aborting the se
     const broken = { id: 1, extra: { tag: "{not json" }, filament: { material: "PLA Basic", color_hex: "F55A74" } };
     const right = { id: 2, extra: { tag: `"${uuid}"` }, filament: { material: "PLA Basic", color_hex: "F55A74" } };
     assert.equal(findExistingSpool(slot, [broken, right])?.id, 2);
+});
+
+/* ---- Native Spoolman tags next to extra.tag ---- */
+
+const UUID = "0417584A3ABE4274838571DB6AA6CABA";
+const OTHER_UUID = "1C3F90B27D5E4A118C6427A0F1D3E845";
+const legacyTagged = (id, uuid, over = {}) => ({ id, extra: { tag: JSON.stringify(uuid) }, ...over });
+const nativeTagged = (id, uuid, over = {}) => ({ id, extra: {}, tags: [{ uid: uuid, format: "bambu" }], ...over });
+
+test("normalizeTagUid spells every form of one tag the same way", () => {
+    assert.equal(normalizeTagUid("04:a2:b3:c4"), "04A2B3C4");
+    assert.equal(normalizeTagUid("04-A2_B3 C4"), "04A2B3C4");
+    assert.equal(normalizeTagUid("0x04a2b3c4"), "04A2B3C4");
+    // The character class once held a doubled backslash, which stripped the
+    // letter s and left white space in.
+    assert.equal(normalizeTagUid(" 04A2\tB3C4 "), "04A2B3C4");
+});
+
+test("normalizeTagUid knows no tag in a placeholder", () => {
+    assert.equal(normalizeTagUid("N/A"), null);
+    assert.equal(normalizeTagUid(""), null);
+    assert.equal(normalizeTagUid(null), null);
+    // What a slot without a chip reports. Spoolman allows a tag on one spool
+    // only, so this must never be looked up or written.
+    assert.equal(normalizeTagUid("00000000000000000000000000000000"), null);
+});
+
+test("findSpoolByTrayUuid still finds a spool linked through extra.tag alone", () => {
+    const spools = [legacyTagged(1, OTHER_UUID), legacyTagged(2, UUID, { tags: [] })];
+    assert.equal(findSpoolByTrayUuid(spools, UUID)?.id, 2);
+    assert.equal(findSpoolByTrayUuid(spools, "N/A"), null);
+});
+
+test("findSpoolByTrayUuid lets a native tag win over an extra.tag naming another spool", () => {
+    // The leftover comes first in the list, which is what a per record test
+    // would have answered with.
+    const spools = [legacyTagged(1, UUID), nativeTagged(2, UUID)];
+    assert.equal(findSpoolByTrayUuid(spools, UUID)?.id, 2);
+});
+
+test("hasBambuTag ignores the tags of other readers", () => {
+    assert.equal(hasBambuTag({ extra: {}, tags: [{ uid: "04AABBCC", format: "ntag" }] }), false);
+    assert.equal(hasBambuTag(nativeTagged(1, UUID)), true);
+    assert.equal(hasBambuTag(legacyTagged(1, UUID)), true);
+    assert.equal(hasBambuTag({ extra: { tag: '""' } }), false);
+    // The chip UID a phone reads off a Bambu Lab spool, registered by another
+    // tool under the same format. It is that tool's tag, not a slot link.
+    assert.equal(hasBambuTag({ extra: {}, tags: [{ uid: "BAA8227400000100", format: "bambu" }] }), false);
+    assert.equal(hasBambuTag({ extra: {}, tags: [{ uid: "A5F4AA83", format: "bambu" }] }), false);
+});
+
+test("findMergeableSpool merges a spool that carries only NFC stickers", () => {
+    // The case native tags were asked for: registered by another tool, then
+    // put into the AMS. Refusing it creates the duplicate.
+    const stickered = mergeCandidate({ tags: [{ uid: "04AABBCC", format: "ntag" }, { uid: "04DDEEFF", format: "ntag" }] });
+    const before = settings.NEVER_MERGE_IF_TAG;
+    try {
+        settings.NEVER_MERGE_IF_TAG = true;
+        assert.equal(findMergeableSpool(glowSlot(100), [stickered])?.id, 15);
+        // So does one whose chip UID another tool registered as "bambu"
+        assert.equal(findMergeableSpool(glowSlot(100), [mergeCandidate({ tags: [{ uid: "BAA8227400000100", format: "bambu" }] })])?.id, 15);
+        // A spool linked to another Bambu Lab chip is what the setting is for
+        assert.equal(findMergeableSpool(glowSlot(100), [mergeCandidate({ tags: [{ uid: OTHER_UUID, format: "bambu" }] })]), undefined);
+        settings.NEVER_MERGE_IF_TAG = false;
+        assert.equal(findMergeableSpool(glowSlot(100), [mergeCandidate({ tags: [{ uid: OTHER_UUID, format: "bambu" }] })])?.id, 15);
+    } finally {
+        settings.NEVER_MERGE_IF_TAG = before;
+    }
+});
+
+test("planTagMigration links what carries only extra.tag and leaves the rest", () => {
+    const plan = planTagMigration([
+        legacyTagged(1, UUID),
+        { ...legacyTagged(2, OTHER_UUID), tags: [{ uid: OTHER_UUID.toLowerCase(), format: "bambu" }] },
+        { id: 3, extra: {}, tags: [{ uid: "04AABBCC", format: "ntag" }] },
+        { id: 4, extra: { tag: '""' } },
+    ]);
+    assert.deepEqual(plan.pending, [{ id: 1, uid: UUID }]);
+    assert.equal(plan.migrated, 1);
+    assert.deepEqual(plan.conflicts, []);
+});
+
+test("planTagMigration reports a tag two spools claim, and prefers the one in use", () => {
+    const plan = planTagMigration([
+        legacyTagged(1, UUID, { archived: true }),
+        legacyTagged(2, UUID),
+        legacyTagged(3, OTHER_UUID),
+        nativeTagged(4, OTHER_UUID),
+    ]);
+    assert.deepEqual(plan.pending, [{ id: 2, uid: UUID }]);
+    assert.deepEqual(plan.conflicts, [
+        { id: 3, uid: OTHER_UUID, heldBy: 4 },
+        { id: 1, uid: UUID, heldBy: 2 },
+    ]);
+});
+
+test("planTagMigration counts a spool linked natively alone as migrated", () => {
+    const uid = "0417584A3ABE4274838571DB6AA6CABA";
+    const plan = planTagMigration([
+        { id: 1, extra: {}, tags: [{ uid, format: "bambu" }] },
+        { id: 2, extra: { tag: '""' }, tags: [{ uid: "5B8E1A4C9F2D48E7B0A36D5C8E914F72", format: "bambu" }] },
+        // A sticker for somebody's own reader is not a link of this service
+        { id: 3, extra: {}, tags: [{ uid: "04A1B2C3D4E5F6", format: "ntag" }] },
+        { id: 4, extra: {}, tags: [] },
+    ]);
+
+    assert.equal(plan.migrated, 2);
+    assert.deepEqual(plan.pending, []);
+    assert.deepEqual(plan.conflicts, []);
+    assert.deepEqual(plan.redundant, []);
+});
+
+test("planTagCleanup names only the spools whose extra.tag repeats their native tag", () => {
+    const uid = "0417584A3ABE4274838571DB6AA6CABA";
+    const other = "5B8E1A4C9F2D48E7B0A36D5C8E914F72";
+    const spools = [
+        // Both links, same value: the field says nothing the tag does not
+        { id: 1, extra: { tag: JSON.stringify(uid) }, tags: [{ uid, format: "bambu" }] },
+        // Not migrated yet, the field is the only link
+        { id: 2, extra: { tag: JSON.stringify(other) }, tags: [] },
+        // Claims the tag spool 1 holds: the field is what says so, it stays
+        { id: 3, extra: { tag: JSON.stringify(uid) }, tags: [] },
+        // The field names another spool than the native tag does
+        { id: 4, extra: { tag: JSON.stringify("9D2A7C15E834B6F0A19C4E7D3B85206F") }, tags: [{ uid: "3E6B9F04C71D42A8B5E092F7A4C61D38", format: "bambu" }] },
+        { id: 5, extra: {}, tags: [{ uid: "C05E2B738A9146D2BF74E1039A5C8B24", format: "bambu" }] },
+    ];
+
+    assert.deepEqual(planTagCleanup(spools), [{ id: 1, uid }]);
+    assert.deepEqual(planTagMigration(spools).redundant, [{ id: 1, uid }]);
 });

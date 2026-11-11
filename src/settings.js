@@ -171,7 +171,15 @@ export const SETTINGS_SCHEMA = {
         default: false,
         group: "sync",
         label: "Never merge a tagged spool",
-        description: "Skips any Spoolman spool that already carries a tag when looking for a merge candidate.",
+        description: "Skips any Spoolman spool that is already linked to a Bambu Lab spool when looking for a merge candidate.",
+    },
+    WRITE_EXTRA_TAG: {
+        type: "boolean",
+        default: true,
+        group: "sync",
+        advanced: true,
+        label: "Also write extra.tag",
+        description: "Keeps writing a spool's tag into the extra field \"tag\" next to the native Spoolman tag, for other tools and older versions that read only that field. Always written for a Spoolman older than 0.27.0, which has no native tags.",
     },
     OFFLINE_CHECK_INTERVAL: {
         type: "integer",

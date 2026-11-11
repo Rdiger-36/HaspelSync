@@ -41,6 +41,7 @@ function expandSpool(spool, filaments) {
         comment: spool.comment ?? null,
         archived: spool.archived ?? false,
         extra: spool.extra ?? {},
+        tags: spool.tags ?? [],
     };
 }
 
@@ -78,7 +79,7 @@ export function createMockSpoolman(log) {
     });
 
     app.get("/api/v1/health", (_req, res) => res.json({ status: "healthy" }));
-    app.get("/api/v1/info", (_req, res) => res.json({ version: "0.26.1", debug_mode: false }));
+    app.get("/api/v1/info", (_req, res) => res.json({ version: "0.27.1", debug_mode: false }));
 
     app.get("/api/v1/vendor", (_req, res) => res.json(store.vendors));
     app.post("/api/v1/vendor", (req, res) => {
@@ -150,6 +151,41 @@ export function createMockSpoolman(log) {
         }
 
         res.json(expandSpool(spool, store.filaments));
+    });
+
+    // Native tags, as Spoolman 0.27.0 and newer hold them: uppercase without
+    // separators, and one tag on one spool only. The 409 is what a migration
+    // runs into when two records carry the same extra.tag.
+    const normalizeUid = uid => String(uid ?? "").replace(/[\s:_-]/g, "").replace(/^0x/i, "").toUpperCase();
+
+    app.post("/api/v1/spool/:id/tag", (req, res) => {
+        const spool = store.spools.find(s => s.id === Number(req.params.id));
+        if (!spool) return res.status(404).json({ message: "No spool with that id" });
+
+        const uid = normalizeUid(req.body.uid);
+        if (!uid) return res.status(422).json({ message: "The uid is empty" });
+
+        const holder = store.spools.find(s => (s.tags ?? []).some(tag => tag.uid === uid));
+        if (holder && holder !== spool) {
+            return res.status(409).json({ message: `Tag ${uid} is already linked to spool ${holder.id}`, spool_id: holder.id, filament_id: null });
+        }
+
+        spool.tags = spool.tags ?? [];
+        let tag = spool.tags.find(entry => entry.uid === uid);
+        if (!tag) {
+            tag = { uid, format: req.body.format ?? null, added: new Date().toISOString() };
+            spool.tags.push(tag);
+        }
+        res.json(tag);
+    });
+
+    app.delete("/api/v1/spool/:id/tag/:uid", (req, res) => {
+        const spool = store.spools.find(s => s.id === Number(req.params.id));
+        if (!spool) return res.status(404).json({ message: "No spool with that id" });
+
+        const uid = normalizeUid(req.params.uid);
+        spool.tags = (spool.tags ?? []).filter(tag => tag.uid !== uid);
+        res.json({ message: "Success" });
     });
 
     // The G-code booking path. Spoolman subtracts the grams itself, which is

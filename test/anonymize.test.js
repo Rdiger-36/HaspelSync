@@ -211,3 +211,10 @@ test("a cloud address that is not a URL is masked whole", () => {
     assert.equal(maskCloudUrl("not a url"), "XXX");
     assert.equal(maskCloudUrl("https://example.com:8443/a/b?c=d"), "https://example.com:8443/XXX");
 });
+
+test("maskText masks the uid of a native Spoolman tag, whatever its length", () => {
+    assert.equal(
+        maskText(`{"tags":[{"uid":"04A1B2C3D4E5F6","format":"ntag"},{"uid":"0417584A3ABE4274838571DB6AA6CABA","format":"bambu"}]}`, {}),
+        `{"tags":[{"uid":"04A1XXXXXXXXXX","format":"ntag"},{"uid":"0417XXXXXXXXXXXXXXXXXXXXXXXXXXXX","format":"bambu"}]}`,
+    );
+});

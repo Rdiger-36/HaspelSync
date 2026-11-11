@@ -31,4 +31,17 @@ export const state = {
     // because the switch is a one line change that a dialog dismissed once and
     // forever is never acted on.
     legacyImageNoticeDismissed: false,
+    // What the connected Spoolman can do about tags, see spoolman.js. null
+    // means "not asked yet" and is treated as "no native tags", because
+    // extra.tag works on every version. Asked again with every bootstrap, the
+    // answer belongs to the instance and not to the process.
+    spoolmanVersion: null,
+    spoolmanNativeTags: null,
+    // A tag migration walks every spool with one request each, so a second
+    // click must not start a second walk over the same list.
+    tagMigrationRunning: false,
+    // How many spools carry their tag in extra.tag alone, as of the last look:
+    // the bootstrap, a check on the settings page or a migration run. null
+    // means nobody looked yet. It feeds the dashboard notice, see tagnotice.js.
+    tagMigrationPending: null,
 };

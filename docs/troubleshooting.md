@@ -16,6 +16,7 @@ Startup and the AMS report:
 [LOG] Server - Spoolman connected successfully!
 [LOG] Server - Checking Extra Field "tag"...
 [LOG] Server - Spoolman Extra Field "tag" for Spool is set: true
+[LOG] Server - Spoolman 0.27.1 knows native tags, spools are linked through them
 [LOG] Bambu Lab P1S - Setting up MQTT connection for Printer: 01PXXXXXXXXXX...
 [LOG] Bambu Lab P1S - MQTT client connected for Printer: 01PXXXXXXXXXX
 [LOG] Bambu Lab P1S - [AMS] Units as the printer names them: A AMS

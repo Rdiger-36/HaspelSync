@@ -14,7 +14,7 @@ Under each spool stands whether its consumption can be booked:
 
 | Marker | Meaning |
 | :---- | :---- |
-| **tag-linked** | An original Bambu Lab spool, linked through the `tag` extra field. Booked automatically |
+| **tag-linked** | An original Bambu Lab spool, linked through its [tag in Spoolman](settings.md#spool-tags). Booked automatically |
 | **assigned** | Linked by hand to a Spoolman spool. Booked onto that spool |
 | **auto-assigned** | Linked by the service to the only spool in Spoolman of that material and colour without a tag, see below. Booked onto that spool. **Unassign** and pick another if it is the wrong one |
 | **not tracked** | Nothing links this slot to Spoolman yet. The print runs, but nothing is booked. Use **Assign Spool** |

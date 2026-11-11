@@ -147,6 +147,9 @@ What the dialogs read from Spoolman and the SpoolmanDB catalogue, and the spool 
 | `GET /api/spoolman/spools` | Every spool in Spoolman, as Spoolman answers it |
 | `GET /api/spoolman/spool/{id}` | One spool in Spoolman, the whole record |
 | `PATCH /api/spoolman/spool/{id}` | Correct the remaining weight, lot number, comment or archived flag of a spool |
+| `GET /api/spoolman/tags` | How the spools are linked: native tags, the extra field alone, and the ones that cannot be migrated |
+| `POST /api/spoolman/tags/migrate` | Give every spool linked through the extra field alone its native tag |
+| `POST /api/spoolman/tags/cleanup` | Clear the extra field on every spool that carries the same tag natively. Refused while the field is still written |
 | `GET /api/spoolman/lookups` | What the create spool dialog picks from: vendors, materials, locations, filaments |
 | `GET /api/spoolman/external/filaments` | Search the SpoolmanDB catalogue |
 | `POST /api/test/spoolman` | Test a Spoolman address |

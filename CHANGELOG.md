@@ -1,6 +1,14 @@
 -----------------------------------------------------------------------------------------------
 Unreleased
+   - New Features:
+      - An original Bambu Lab spool is linked through Spoolman's own tags. Spoolman 0.27.0 and newer hold the tag of a spool natively, and a spool created or merged against such a Spoolman gets the serial number of its RFID chip as a native tag. A native tag belongs to one spool only, so two records can no longer claim the same physical spool the way two equal extra fields could. The extra field `tag` is still read, a spool linked before is recognised exactly as it was, and an older Spoolman is linked through the extra field as before. Based on the proposal in PR #254
+      - Spools linked before can be migrated. The "Spool tags" card in the Spoolman section of the settings says how many spools carry their tag only in the extra field, and "Migrate now" gives each of them the native tag, archived spools included. The extra field stays in place, so the migration can be repeated and nothing that reads the field stops working. A spool that shares its tag with another one is listed with the spool that holds it rather than migrated. The dashboard offers the same migration once, the first time it finds spools to migrate
+      - "Also write extra.tag" in the advanced part of the Synchronisation card, on by default (`WRITE_EXTRA_TAG`). Switched off, a new or merged spool is linked through the native tag alone, for an installation where nothing else reads the extra field. It changes what is written, never what is read
+      - A tag another tool put on a spool is left alone. An NFC sticker, an OpenPrintTag or the chip number of a Bambu Lab spool does not make the spool count as linked: it can still be merged, and "Never merge a tagged spool" looks only at the link this service writes
+      - "Clear extra fields" on the same card empties the extra field on the spools that carry the same tag natively. It is offered only once every spool is migrated and "Also write extra.tag" is off, it asks first, and a spool that could not be migrated keeps its field. Nothing needs it: the field can stay for good
+      - `GET /api/spoolman/tags`, `POST /api/spoolman/tags/migrate` and `POST /api/spoolman/tags/cleanup` report and run both over the API
    - Fixes:
+      - A spool archived by hand in Spoolman while it still sits in its slot is recognised by its native tag, also with "Archive empty spools" off. It reads "Loaded (archived)" instead of being offered as a new spool
       - A slot that is linked to a spool no longer names a spool it could be merged with. After an automatic merge the API reported the spool the slot had just been linked to as `mergeableSpool` as well, until something else changed the slot, and a slot with an assigned spool kept its merge candidate
 
 -----------------------------------------------------------------------------------------------

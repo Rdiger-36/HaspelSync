@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.8-dev.2
    - Fixes:
       - A print of a file that was changed and sent again under the same name is weighed from the new file. The printer can keep both copies, one in its cache and one on the storage root, and the service read whichever name it tried first, which could be the old file. It now asks the printer when each copy was written and reads the newest (issue #252)
       - A spool that an AMS refill ran empty no longer keeps its slot's assignment. The assignment is what links a spool without an RFID tag to its slot, and it stayed after the spool ran out, so the next spool of the same filament put into that slot was booked on the empty one. It is released at the end of the print, and only after a refill: a spool taken out by hand, to be dried for example, keeps its slot as before (issue #225)

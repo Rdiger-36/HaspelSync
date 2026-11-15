@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveRemotePaths, sliceFetchRetryDue, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS, slicedFileCandidates, SLICED_FILE_TIME_WINDOW_MS, reportedPlate, parseModelTitles, parsePlateIndices, judgeSlicedFile, settleSlicedFile, readSlicedFileFacts, parseModelIds, countPrintedLayers, parseSliceInfo, parseModelNames, modelTitleFor, readZipTailEntry } from "../src/gcode.js";
+import { resolveRemotePaths, newestFirst, sliceFetchRetryDue, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS, slicedFileCandidates, SLICED_FILE_TIME_WINDOW_MS, reportedPlate, parseModelTitles, parsePlateIndices, judgeSlicedFile, settleSlicedFile, readSlicedFileFacts, parseModelIds, countPrintedLayers, parseSliceInfo, parseModelNames, modelTitleFor, readZipTailEntry } from "../src/gcode.js";
 import AdmZip from "adm-zip";
 import { randomBytes } from "crypto";
 import { sliceFetchFailure, localFileName, printIdentity } from "../src/mqtt.js";
@@ -334,4 +334,30 @@ test("only the layers that print filament are counted", () => {
     // The booking maths counts the same way, as a 0-based last index
     assert.equal(parseSliceInfo(xml).totalLayers, 247);
     assert.deepEqual(parseSliceInfo(xml).rangesByFilamentIdx, { 0: [[0, 247]] });
+});
+
+// A job reprinted under its old name after the file was changed: the old copy
+// stayed in /cache and the new one went to the root, and the first name read
+// the old file (issue #252).
+test("newestFirst puts the newest copy of a name first", () => {
+    const order = newestFirst([
+        { path: "/cache/Cube.gcode.3mf", modifiedAt: 1000 },
+        { path: "/cache/Cube.3mf", modifiedAt: null },
+        { path: "/Cube.gcode.3mf", modifiedAt: 5000 },
+        { path: "/Cube.3mf", modifiedAt: null },
+    ]).map(file => file.path);
+    assert.deepEqual(order, ["/Cube.gcode.3mf", "/cache/Cube.gcode.3mf", "/cache/Cube.3mf", "/Cube.3mf"]);
+});
+
+test("newestFirst keeps the resolved order when no time is known", () => {
+    const paths = ["/cache/Cube.gcode.3mf", "/cache/Cube.3mf", "/Cube.gcode.3mf"];
+    assert.deepEqual(newestFirst(paths.map(path => ({ path, modifiedAt: null }))).map(file => file.path), paths);
+});
+
+test("newestFirst keeps the resolved order between equal times", () => {
+    const order = newestFirst([
+        { path: "/cache/Cube.gcode.3mf", modifiedAt: 1000 },
+        { path: "/Cube.gcode.3mf", modifiedAt: 1000 },
+    ]).map(file => file.path);
+    assert.deepEqual(order, ["/cache/Cube.gcode.3mf", "/Cube.gcode.3mf"]);
 });

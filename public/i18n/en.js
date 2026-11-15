@@ -7,6 +7,14 @@
  */
 I18N.register("en", "English", {
     // Language names for the switch in the menu bar
+    "dashboard.result.ranOut": {"one":"{count} spool ran out, check the report","other":"{count} spools ran out, check the report"},
+    "dashboard.summary.archive": "Archive",
+    "dashboard.summary.archiveDone": "Archived.",
+    "dashboard.summary.ranOut": "Spool #{id} ({name}, {slot}) ran out during this print, but Spoolman still lists {weight} g on it. Its starting weight was probably too high.",
+    "dashboard.summary.ranOutFailed": "Could not change the spool: {message}",
+    "dashboard.summary.ranOutReleased": "The assignment of {slot} was released, so the next spool in {slot} is not booked on this one.",
+    "dashboard.summary.setEmpty": "Set to 0 g",
+    "dashboard.summary.setEmptyDone": "Set to 0 g.",
     "language.en": "English",
     "language.de": "German",
     "language.pl": "Polish",

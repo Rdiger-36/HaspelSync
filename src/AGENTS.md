@@ -469,6 +469,11 @@ not abort the rest of the same AMS update. Both callers read that answer: the
 route turns it into the response, and `processSlot()` counts only a write that
 happened as a reason to refetch the Spoolman lists. A new one keeps the shape,
 or the Web UI goes back to reporting success for a write that never landed.
+Each checks first that the slot carries what it writes from and answers
+`{ ok: false, code }` where it does not (`nothingToMerge`,
+`noMatchingFilament`, `noCatalogueFilament`), which the route sends as a 409:
+reading a field of the missing object sent a TypeError to the browser in
+issue #262.
 
 **Adding matching logic:** put the decision in `ams.js` as a pure function and
 call it from `mqtt.js`. That is what makes it testable: `test/ams.test.js`

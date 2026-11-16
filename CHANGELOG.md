@@ -8,6 +8,7 @@ Unreleased
       - An empty slot of the AMS 3H is shown as empty. It reports one field more than the empty slot of any other AMS, and that field made it look like a 3rd party spool waiting for an assignment (issue #262)
       - The H3C reports a spool holder for each of its nine tools. The first two keep the labels `External` and `External-2` every dual nozzle printer has, the others are `External-3` to `External-9`. Not seen with a spool on it yet (issue #262)
       - The slot a print runs from, as `/api/status` reports it, is no longer read from `tray_now` on a printer that names it per nozzle. The H3C sends both, and its `tray_now` counts the slots within its unit, which read as a slot of the first AMS (issue #262)
+      - Merge, Create and Create with filament on a slot that has nothing to write from answer with a message saying so, in the language of the Web UI, instead of "Cannot read properties of null". That happens on a page that is no longer current, and it happened on every merge on an H3C, where all slots shared one label (issue #262). Two slots under one label are refused rather than written to whichever comes first. Over the API these answers are a 409 with a `code`
 
 -----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.2

@@ -3784,7 +3784,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                showNotification(t("dashboard.error", { error: err.error || t("dashboard.actionFailed") }), "error");
+                // In the viewer's language where the answer carries a code
+                const message = err.code || err.error ? I18N.errorText(err, res.status) : t("dashboard.actionFailed");
+                showNotification(t("dashboard.error", { error: message }), "error");
                 button.textContent = originalText;
                 button.disabled = false;
                 return;

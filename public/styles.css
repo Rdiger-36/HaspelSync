@@ -879,7 +879,7 @@ caption.ams-env .ams-env-drying-mark {
    row runs through without a break. */
 .dryer-rows {
   display: grid;
-  grid-template-columns: max-content max-content max-content minmax(80px, 1fr) max-content;
+  grid-template-columns: max-content max-content max-content minmax(max-content, 1fr) max-content;
   align-items: center;
 }
 
@@ -894,6 +894,17 @@ caption.ams-env .ams-env-drying-mark {
   align-items: center;
 }
 
+/* The column names, set like the head of a slot table */
+.dryer-row-head > span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-quiet);
+  font-weight: 600;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .dryer-row > span:first-child { padding-left: 16px; }
 .dryer-row > span:last-child { padding-right: 16px; }
 
@@ -906,6 +917,7 @@ caption.ams-env .ams-env-drying-mark {
 .dryer-bar {
   display: block;
   width: 100%;
+  min-width: 80px;
   height: 4px;
   border-radius: 2px;
   background: var(--border);
@@ -917,6 +929,32 @@ caption.ams-env .ams-env-drying-mark {
   height: 100%;
   background: var(--warn);
 }
+
+/* Stacked, when the columns do not fit the card on one line: on a phone, and
+   on a narrow window in a language with long words. renderDryerCard()
+   measures it rather than guessing a breakpoint, because the width the
+   columns need depends on the language. Each row then puts the unit and its
+   state on one line and the rest below, with the bar across the full width,
+   and the column names go, since there are no columns left to name. */
+.dryer-card.is-stacked .dryer-rows { display: block; }
+.dryer-card.is-stacked .dryer-row.dryer-row-head { display: none; }
+
+.dryer-card.is-stacked .dryer-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dryer-card.is-stacked .dryer-row > span { padding: 0; border-top: 0; }
+/* A long state ("Heizung lässt sich nicht stoppen") wraps inside its own
+   column, right aligned, rather than pushing past the card's edge */
+.dryer-card.is-stacked .dryer-state { white-space: normal; text-align: right; justify-content: flex-end; }
+.dryer-card.is-stacked .dryer-progress { grid-column: 1 / -1; }
+.dryer-card.is-stacked .dryer-progress:empty,
+.dryer-card.is-stacked .dryer-details:empty,
+.dryer-card.is-stacked .dryer-left:empty { display: none; }
 
 /* The readings sit in a span of their own, so each needs the spacing the
    direct children have. */
@@ -3249,34 +3287,12 @@ a.menu-foot-update:hover { text-decoration: underline; }
     color: var(--text);
   }
 
-  /* The drying cycle carries a target and a countdown, which is more than fits
-     next to the humidity on a phone. Its own line, under the readings it
-     belongs to. */
   /* On a phone the counts of a folded card take a line of their own under
      the title, which keeps the chevron on the first line at the right. The
      chevron itself is ordered 10 on a phone, see `.ams-toggle` below. */
   .dryer-card-summary { order: 20; flex-basis: 100%; }
 
-  /* On a phone a dryer row stacks: the unit and its state on one line, the
-     rest below, and the bar across the full width. */
-  .dryer-rows { display: block; }
 
-  .dryer-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 2px 10px;
-    padding: 7px 16px;
-    border-top: 1px solid var(--border);
-  }
-
-  .dryer-row > span,
-  .dryer-row > span:first-child,
-  .dryer-row > span:last-child { padding: 0; border-top: 0; }
-  /* A long state ("Heizung lässt sich nicht stoppen") wraps inside its own
-     column, right aligned, rather than pushing past the card's edge */
-  .dryer-state { white-space: normal; text-align: right; justify-content: flex-end; }
-  .dryer-progress { grid-column: 1 / -1; }
-  .dryer-progress:empty, .dryer-details:empty, .dryer-left:empty { display: none; }
 
 
 

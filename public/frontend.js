@@ -116,6 +116,8 @@ const renderedSpools = new Map();
 
 // Initialize the document once it has fully loaded
 document.addEventListener("DOMContentLoaded", () => {
+    // The dryer card chooses between columns and stacked rows by what fits
+    window.addEventListener("resize", () => fitDryerCard());
 
     document.getElementById("monitoring-toggle").addEventListener("change", toggleMonitoring);
 
@@ -760,7 +762,11 @@ document.addEventListener("DOMContentLoaded", () => {
             `</button>` +
             `</div>`;
 
-        return `${head}<div class="dryer-rows">${rows.join("")}</div>`;
+        // Column names, like the slot tables carry them. Only where every row
+        // fits on one line; on a phone the rows stack and the header is hidden.
+        const columns = ["unit", "state", "setting", "progress", "left"]
+            .map(column => `<span>${escapeHtml(t(`dashboard.dryers.column.${column}`))}</span>`).join("");
+        return `${head}<div class="dryer-rows"><div class="dryer-row dryer-row-head" aria-hidden="true">${columns}</div>${rows.join("")}</div>`;
     }
 
     // Puts the dryer card in front of the first slot table, updates it in
@@ -781,6 +787,19 @@ document.addEventListener("DOMContentLoaded", () => {
         card.classList.toggle("is-collapsed", collapsedUnits().has(DRYER_CARD_KEY));
         card.innerHTML = html;
         if (!existing) list.insertBefore(card, list.querySelector(":scope > table"));
+        fitDryerCard(card);
+    }
+
+    // Columns only where every row fits on one line, stacked rows otherwise.
+    // Measured rather than tied to a breakpoint: the width the columns need
+    // depends on the language ("Fortschritt", "noch ~ 5 Stunden 10 min") as
+    // much as on the window. Folded, there is nothing to measure, and the
+    // next unfold renders the card again.
+    function fitDryerCard(card = document.querySelector(".dryer-card")) {
+        if (!card || card.classList.contains("is-collapsed")) return;
+        card.classList.remove("is-stacked");
+        const rows = card.querySelector(".dryer-rows");
+        if (rows && rows.scrollWidth > rows.clientWidth + 1) card.classList.add("is-stacked");
     }
 
     /* ---- Folding a unit ----

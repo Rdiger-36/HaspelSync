@@ -125,6 +125,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("spool-list").addEventListener("click", event => {
         // The header of a unit folds its slots away and back. The whole line
         // is the control, the chevron in it only says so.
+        // The dryer card folds the same way, under a key no unit label takes
+        if (event.target.closest(".dryer-card-head")) {
+            setUnitCollapsed(DRYER_CARD_KEY, !collapsedUnits().has(DRYER_CARD_KEY));
+            renderDryerCard();
+            return;
+        }
+
         const caption = event.target.closest("caption.ams-env");
         if (caption) {
             const table = caption.closest("table");
@@ -656,6 +663,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return parts.join("");
     }
 
+    // The key the dryer card's fold is kept under, next to the units' own.
+    // Not a slot label, so it can never fold a unit by accident.
+    const DRYER_CARD_KEY = "#dryers";
+
     // How a running dryer looks: amber while it works, blue while it cools
     // down, red when it reports a fault.
     function dryerTone(drying) {
@@ -724,7 +735,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 `</div>`;
         });
 
-        return `<div class="dryer-card-head">${escapeHtml(t("dashboard.dryers.title"))}</div>${rows.join("")}`;
+        // Folded, the head keeps one symbol per running dryer, so a fault or a
+        // cycle cooling down is still seen without opening the card
+        const collapsed = collapsedUnits().has(DRYER_CARD_KEY);
+        const summary = running.map(([unitKey, env]) =>
+            `<span title="${escapeHtml(amsUnitLabel(unitKey, env).label)}">${dryerIcon(env.drying)}</span>`).join("");
+        const toggle = t(collapsed ? "dashboard.unit.expand" : "dashboard.unit.collapse");
+        const head = `<div class="dryer-card-head">` +
+            `<span class="dryer-card-title">${escapeHtml(t("dashboard.dryers.title"))}</span>` +
+            `<span class="dryer-card-count">${escapeHtml(t("dashboard.dryers.running", { count: running.length }))}</span>` +
+            `<span class="dryer-card-summary">${summary}</span>` +
+            `<button type="button" class="ams-toggle" aria-expanded="${!collapsed}" title="${escapeHtml(toggle)}" aria-label="${escapeHtml(toggle)}">` +
+                `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+            `</button>` +
+            `</div>`;
+
+        return `${head}<div class="dryer-rows">${rows.join("")}</div>`;
     }
 
     // Puts the dryer card in front of the first slot table, updates it in
@@ -740,14 +766,11 @@ document.addEventListener("DOMContentLoaded", () => {
             existing?.remove();
             return;
         }
-        if (existing) {
-            existing.innerHTML = html;
-            return;
-        }
-        const card = document.createElement("div");
+        const card = existing ?? document.createElement("div");
         card.className = "dryer-card";
+        card.classList.toggle("is-collapsed", collapsedUnits().has(DRYER_CARD_KEY));
         card.innerHTML = html;
-        list.insertBefore(card, list.querySelector(":scope > table"));
+        if (!existing) list.insertBefore(card, list.querySelector(":scope > table"));
     }
 
     /* ---- Folding a unit ----

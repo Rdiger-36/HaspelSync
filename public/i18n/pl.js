@@ -223,6 +223,7 @@ I18N.register("pl", "Polski", {
     "dashboard.direction.longitudinal": "wzdłużny",
     "dashboard.env.dryerZoneTitle": "Sloty {slots}, strefa suszenia tego urządzenia: wilgotność i temperatura w niej",
     "dashboard.dryers.title": "Suszarki",
+    "dashboard.dryers.running": {"one": "{count} pracuje", "few": "{count} pracują", "many": "{count} pracuje", "other": "{count} pracuje"},
     "dashboard.env.dryLeft": "zostało {time}",
     "dashboard.env.dryStatus.checking": "Sprawdza",
     "dashboard.env.dryStatus.drying": "Suszy",

@@ -226,6 +226,7 @@ I18N.register("en", "English", {
     "dashboard.direction.longitudinal": "longitudinal",
     "dashboard.env.dryerZoneTitle": "Slots {slots}, the drying zone of this unit: humidity and temperature there",
     "dashboard.dryers.title": "Dryers",
+    "dashboard.dryers.running": {"one": "{count} running", "other": "{count} running"},
     "dashboard.env.dryLeft": "{time} left",
     "dashboard.env.dryStatus.checking": "Checking",
     "dashboard.env.dryStatus.drying": "Drying",

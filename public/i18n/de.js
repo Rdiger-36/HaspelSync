@@ -223,6 +223,7 @@ I18N.register("de", "Deutsch", {
     "dashboard.direction.longitudinal": "längs",
     "dashboard.env.dryerZoneTitle": "Slots {slots}, die Trockenzone dieser Einheit: Luftfeuchtigkeit und Temperatur dort",
     "dashboard.dryers.title": "Trockner",
+    "dashboard.dryers.running": {"one": "{count} läuft", "other": "{count} laufen"},
     "dashboard.env.dryLeft": "noch {time}",
     "dashboard.env.dryStatus.checking": "Prüft",
     "dashboard.env.dryStatus.drying": "Trocknet",

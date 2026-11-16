@@ -6,6 +6,7 @@ import {
     exportPrinters,
     exportSettings,
     maskHost,
+    maskIntIp,
     maskIp,
     maskPath,
     maskSerial,
@@ -216,5 +217,35 @@ test("maskText masks the uid of a native Spoolman tag, whatever its length", () 
     assert.equal(
         maskText(`{"tags":[{"uid":"04A1B2C3D4E5F6","format":"ntag"},{"uid":"0417584A3ABE4274838571DB6AA6CABA","format":"bambu"}]}`, {}),
         `{"tags":[{"uid":"04A1XXXXXXXXXX","format":"ntag"},{"uid":"0417XXXXXXXXXXXXXXXXXXXXXXXXXXXX","format":"bambu"}]}`,
+    );
+});
+
+test("the chip number of a spool in a raw report is masked, the placeholder stays", () => {
+    // Seen in the trace of issue #262, next to a tray_uuid that was masked
+    assert.equal(
+        maskText(`{"tag_uid":"3C7249E100000100","tray_uuid":"18F1DE9B4FF74902A7CAA100D8F2CB5F"}`, {}),
+        `{"tag_uid":"3C72XXXXXXXXXXXX","tray_uuid":"18F1XXXXXXXXXXXXXXXXXXXXXXXXXXXX"}`,
+    );
+    assert.equal(maskText(`{"tag_uid":"0000000000000000"}`, {}), `{"tag_uid":"0000000000000000"}`);
+});
+
+test("the serial of a hotend is masked, a printer serial keeps its five characters", () => {
+    const report = `{"sn":"22E8BJ581201877","nozzle":{"info":[{"id":0,"sn":"B64A01A680101457"},{"id":1,"sn":""}]}}`;
+    assert.equal(
+        maskText(report, { serials: ["22E8BJ581201877"] }),
+        `{"sn":"22E8BXXXXXXXXXX","nozzle":{"info":[{"id":0,"sn":"B64AXXXXXXXXXXXX"},{"id":1,"sn":""}]}}`,
+    );
+    // A printer that is no longer configured still keeps five, like everywhere else in the file
+    assert.equal(maskText(`{"sn":"01P00A123456789"}`, {}), `{"sn":"01P00XXXXXXXXXX"}`);
+});
+
+test("an address reported as an integer keeps its subnet and loses its host", () => {
+    // Little endian: the last octet is the high byte
+    assert.equal(maskIntIp(1291954368), "192.168.1.XXX");
+    assert.equal(maskIntIp("1644210368"), "192.168.0.XXX");
+    assert.equal(maskIntIp(0), "0");
+    assert.equal(
+        maskText(`{"net":{"conf":0,"info":[{"ip":1291954368,"mask":16777215},{"ip":0,"mask":0}]}}`, {}),
+        `{"net":{"conf":0,"info":[{"ip":"192.168.1.XXX","mask":16777215},{"ip":0,"mask":0}]}}`,
     );
 });

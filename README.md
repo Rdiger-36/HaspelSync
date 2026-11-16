@@ -67,6 +67,7 @@ Automatic creating and merging of spools and filaments in Spoolman relies on the
 | H series | ✅ with a USB stick in the printer, see below |
 | X1 series | ✅ |
 | X2D | ✅ with a USB stick in the printer, see below |
+| H3C with AMS 3H | ❓ new, from one user's report: the nine slots are `E1` to `E9`, see [issue #262](https://github.com/Rdiger-36/HaspelSync/issues/262) |
 | A2L | ❓ untested, its AMS reports as unit 16 and is not addressed yet, see [issue tracker](https://github.com/Rdiger-36/HaspelSync/issues) |
 
 | AMS | Supported |
@@ -74,13 +75,14 @@ Automatic creating and merging of spools and filaments in Spoolman relies on the
 | AMS | ✅ |
 | AMS 2 Pro | ✅ |
 | AMS HT | ✅ |
+| AMS 3H | ❓ the nine slot unit of the H3C, `E1` to `E9` |
 | AMS Lite | ⚠️ no weight updates in [legacy mode](docs/legacy-mode.md) |
 
 Up to 12 AMS on one printer: max. 4 AMS Standard / 2 Pro plus 8 AMS HT.
 
 **The second generation printers, the P2S, the H2 series and the X2D, need a USB stick in the printer for consumption tracking.** Their FTPS server shows the stick and nothing else. With a stick in, the printer writes every job onto it and the sliced file is read from there, found by the job's name or, when the name does not lead to it, by the time it was written and what it says about itself. Without one, the file only exists in the printer's internal storage, which nothing outside the printer can read, and every print ends with "No sliced file on the printer" in the log (issue #179). The printer reports whether a stick is in, and the print card says "No USB stick or SD card in the printer" for as long as none is.
 
-The external spool holder counts as one more slot, named `External`, on a printer that reports it, and a dual nozzle printer gets `External-2` for its second holder. It carries no RFID chip, so it is assigned to a Spoolman spool by hand like any 3rd party spool, and it is not read in [legacy mode](docs/legacy-mode.md), where the weight comes from the chip.
+The external spool holder counts as one more slot, named `External`, on a printer that reports it, a dual nozzle printer gets `External-2` for its second holder, and an H3C, which has one holder per tool, `External-3` to `External-9` for the rest. It carries no RFID chip, so it is assigned to a Spoolman spool by hand like any 3rd party spool, and it is not read in [legacy mode](docs/legacy-mode.md), where the weight comes from the chip.
 
 x86-64, arm64 and arm/v7 are built; the [installation](docs/installation.md#supported-architectures) says which device falls under which.
 
@@ -157,7 +159,7 @@ Found a bug, an issue or an improvement? [Let me know](https://github.com/Rdiger
 ## Credits
 
 - [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) is the filament catalogue new filaments are filled in from, and a subset of it is what the mock Spoolman of the test server serves.
-- [ha-bambulab](https://github.com/greghesp/ha-bambulab), the Home Assistant integration for Bambu Lab printers, is where all but one of the printer reports under `test/fixtures/reports` come from. They are what real A1, A2L, H2C, H2D, H2D Pro, H2S, P1P, P2S, X1C and X2D printers sent, most of them hardware nobody working on this project owns. The one exception, `p1s.json`, is the raw MQTT trace a user attached to issue #131.
+- [ha-bambulab](https://github.com/greghesp/ha-bambulab), the Home Assistant integration for Bambu Lab printers, is where all but one of the printer reports under `test/fixtures/reports` come from. They are what real A1, A2L, H2C, H2D, H2D Pro, H2S, P1P, P2S, X1C and X2D printers sent, most of them hardware nobody working on this project owns. The two exceptions are raw MQTT traces users attached to issues: `p1s.json` from issue #131 and `h3c.json` from issue #262.
 
 The licences of both are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

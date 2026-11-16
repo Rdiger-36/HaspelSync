@@ -127,9 +127,10 @@ test("only the loaded holder of the two yields a unit", () => {
 });
 
 test("a holder with an id this service has no label for is dropped", () => {
-    // Nothing observed reports one. Labelling it "Z" would have let it be
-    // assigned under a key shared with every other unknown unit.
-    assert.deepEqual(externalSpoolUnits({ vir_slot: [{ ...virSlot, id: "253" }] }), []);
+    // Nothing observed reports one below 247, the ninth holder of an H3C.
+    // Labelling it "Z" would have let it be assigned under a key shared with
+    // every other unknown unit.
+    assert.deepEqual(externalSpoolUnits({ vir_slot: [{ ...virSlot, id: "246" }] }), []);
 });
 
 // A P2S mentions the holder in every report that carries AMS data. A P1S sends

@@ -1,6 +1,6 @@
 import { settings, legacyMode } from "./settings.js";
 import { toClientSpool } from "./uispool.js";
-import { orNull, slotColors, filamentColors, convertAMSandSlot, EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT } from "./utils.js";
+import { orNull, slotColors, filamentColors, convertAMSandSlot, isExternalSlot } from "./utils.js";
 import { consumptionKey, normColor } from "./gcode.js";
 
 /**
@@ -181,8 +181,14 @@ export { correctRemainInt } from "../public/shared.js";
  * placeholders on every tray, so those five say nothing about occupancy.
  * Every field the normalisation adds unconditionally has to be listed here, or
  * it alone makes an empty slot look occupied.
+ *
+ * `print_status` is the H3C's: its AMS 3H reports an empty slot as `id`,
+ * `state` 160 and `print_status` 0, and a loaded one carries the field too,
+ * 1 on the slot the print runs from (issue #262). It says whether the slot is
+ * printing, not whether it holds anything, and without it here all five empty
+ * slots of that report read as 3rd party spools nobody could identify.
  */
-const EMPTY_TRAY_KEYS = new Set(["id", "state", "remain", "cols", "tray_color", "tray_sub_brands", "tray_weight", "tray_uuid"]);
+const EMPTY_TRAY_KEYS = new Set(["id", "state", "print_status", "remain", "cols", "tray_color", "tray_sub_brands", "tray_weight", "tray_uuid"]);
 
 /**
  * Whether the AMS reports something physically sitting in the slot.
@@ -938,7 +944,7 @@ export function matchConsumption(entries, candidates) {
 export function holderSwapIndices(entries) {
     const byHolder = {};
     for (const entry of entries) {
-        if (!entry.amsIdFromPrinter || (entry.amsId !== EXTERNAL_SLOT && entry.amsId !== SECOND_EXTERNAL_SLOT)) continue;
+        if (!entry.amsIdFromPrinter || !isExternalSlot(entry.amsId)) continue;
         (byHolder[entry.amsId] ||= new Set()).add(entry.index);
     }
     return new Set(Object.values(byHolder).filter(indices => indices.size > 1).flatMap(indices => [...indices]));
@@ -986,7 +992,10 @@ function amsNumber(value) {
  *     the level is shown for both and the dashboard says where it comes from.
  *   - A unit that reports none of it is left out entirely, so the dashboard
  *     shows no empty header. The external spool holder is the case that
- *     reaches this.
+ *     reaches this. A unit the printer named in `get_version` stays, without
+ *     readings: the AMS 3H of an H3C reports its humidity and temperature per
+ *     drying zone in `zone_info` and nothing for the unit (issue #262), and
+ *     its name is what the dashboard header needs from here.
  *
  * `humidity` is a level from 1 (driest) to 5. An AMS HT was observed reporting
  * level "0" alongside a valid 24% reading, so 0 is treated as "no level yet"
@@ -1041,6 +1050,7 @@ export function extractAmsEnvironment(amsArray, models = {}) {
             } : null,
         };
     }).filter(entry =>
+        entry.model !== null ||
         entry.humidity !== null ||
         entry.humidityPercent !== null ||
         entry.temperature !== null ||
@@ -1081,6 +1091,9 @@ export function modelCanDry(model) {
  *   - `ams_f1/`  the AMS Lite, `hw_ver` "AMS_F102" in ha-bambulab's sample
  *   - `n3f/`     the AMS 2 Pro
  *   - `n3s/`     the AMS HT, with the unit id 128 and up
+ *   - `n10a`     the AMS 3H of an H3C, unit 32, `product_name` "AMS 3H" in
+ *                ha-bambulab's H3C payload. This one carries no number in its
+ *                name: the unit id is the module's own `id` field
  *
  * A module with another prefix (`ota`, `mc`, `th`, `esp32` and so on) is the
  * printer itself and is left out. A unit id the labels cannot name is left out
@@ -1095,16 +1108,18 @@ export function amsModelsFromVersion(modules) {
         ["ams/", "AMS"],
         ["n3f/", "AMS 2 Pro"],
         ["n3s/", "AMS HT"],
+        ["n10a", "AMS 3H"],
     ];
     const models = {};
     if (!Array.isArray(modules)) return models;
 
     for (const module of modules) {
         const name = typeof module?.name === "string" ? module.name : "";
-        const family = FAMILIES.find(([prefix]) => name.startsWith(prefix));
+        const family = FAMILIES.find(([prefix]) => prefix.endsWith("/") ? name.startsWith(prefix) : (name === prefix || name.startsWith(`${prefix}/`)));
         if (!family) continue;
 
-        const id = Number(name.slice(family[0].length));
+        const suffix = name.slice(family[0].length).replace(/^\//, "");
+        const id = Number(suffix === "" ? module.id ?? NaN : suffix);
         if (!Number.isInteger(id)) continue;
         const amsId = convertAMSandSlot(id, null);
         if (amsId === "Z") continue;

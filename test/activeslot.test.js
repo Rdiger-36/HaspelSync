@@ -34,6 +34,8 @@ test("the real reports name the slot in the printing nozzle", () => {
         // the H2D Pro prints from nozzle 1, which is empty
         "h2d-pro": null,
         "h2c": null,
+        // the AMS 3H of an H3C, unit 32 slot 2; its tray_now "2" would be A3
+        "h3c": "E3",
     };
 
     for (const [name, slot] of Object.entries(expected)) {
@@ -49,6 +51,6 @@ test("a report that says nothing about it leaves the last value alone", () => {
 test("a delta without the extruder state keeps the nozzle the last report named", () => {
     const delta = { device: { extruder: { info: [{ id: 0, snow: 0 }, { id: 1, snow: 257 }] } } };
 
-    assert.deepEqual(activeSlotFromReport(delta, 1), { slot: "B2", nozzle: 1 });
-    assert.deepEqual(activeSlotFromReport(delta, 0), { slot: "A1", nozzle: 0 });
+    assert.deepEqual(activeSlotFromReport(delta, 1), { slot: "B2", nozzle: 1, fromSnow: true });
+    assert.deepEqual(activeSlotFromReport(delta, 0), { slot: "A1", nozzle: 0, fromSnow: true });
 });

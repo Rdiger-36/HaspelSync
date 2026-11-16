@@ -1,7 +1,5 @@
 import {
     ACTIVE_PRINT_STATES,
-    EXTERNAL_SLOT,
-    SECOND_EXTERNAL_SLOT,
     SLOT_OPTIONS,
     allToday,
     correctRemainInt,
@@ -10,7 +8,10 @@ import {
     formatDate,
     formatMoment,
     formatRemaining,
+    groupSlotsByUnit,
     humanLayers,
+    isExternalSlot,
+    isSingleSlotLabel,
     normColor,
     slotColors,
     slotLocation,
@@ -487,8 +488,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // One table per AMS unit: the four slot units in tables of four, the single
-    // slot ones (AMS HT and the external spool holder) in a table of their own.
+    // One table per AMS unit: the units with numbered slots in one table each,
+    // whatever their size (four for an AMS, nine for the AMS 3H of an H3C), the
+    // single slot ones (AMS HT and the external spool holders) in a table of
+    // their own. The grouping is groupSlotsByUnit() in shared.js.
     //
     // Both views group their slots this way and each used to write the grouping
     // out itself, the classic one with its header block spelled out a second
@@ -539,12 +542,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return table;
         };
 
-        const normalAMS = spools.filter(s => !isSingleSlotUnit(s.amsId));
-        const singles = spools.filter(s => isSingleSlotUnit(s.amsId));
-
-        const tables = [];
-        for (let i = 0; i < normalAMS.length; i += 4) tables.push(makeTable(normalAMS.slice(i, i + 4)));
-        for (const single of singles) tables.push(makeTable([single]));
+        const tables = groupSlotsByUnit(spools).map(makeTable);
 
         if (!tables.length && emptyMessage) {
             const empty = makeTable([]);
@@ -557,11 +555,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // The unit a slot belongs to, as the AMS environment readings are keyed.
-    // A four slot unit is the letter of its label, a single slot unit is the
-    // whole label, because "HT-A" carries no slot number to strip.
+    // A unit with numbered slots is the letter of its label, a single slot
+    // unit is the whole label, because "HT-A" carries no slot number to strip.
     function amsUnitKey(amsId) {
         if (!amsId) return "";
-        return isSingleSlotUnit(amsId) ? amsId : amsId.charAt(0);
+        return isSingleSlotLabel(amsId) ? amsId : amsId.charAt(0);
     }
 
     // Mirrors the readings from /api/status or an ams_env event. A payload
@@ -1559,7 +1557,7 @@ document.addEventListener("DOMContentLoaded", () => {
             suggested = true;
 
             const ranked = rankCatalogueEntries([...catalogue.values()], slot, {
-                external: amsSpool.amsId === EXTERNAL_SLOT || amsSpool.amsId === SECOND_EXTERNAL_SLOT,
+                external: isExternalSlot(amsSpool.amsId),
                 line: defaults.line,
             });
             const best = ranked[0];
@@ -2579,14 +2577,6 @@ document.addEventListener("DOMContentLoaded", () => {
             gcodeRefreshTimer = null;
             if (currentPrinterId && !legacyMode && !isDialogOpen()) loadGcodeView(currentPrinterId);
         }, 1000);
-    }
-
-    // Slots that stand alone rather than filling a four slot AMS unit. An
-    // external spool holder reports one spool and gets a table of its own, like
-    // an AMS HT unit, because it belongs to no four slot unit and would
-    // otherwise break their grouping. A dual nozzle printer has two of them.
-    function isSingleSlotUnit(amsId) {
-        return amsId === EXTERNAL_SLOT || amsId === SECOND_EXTERNAL_SLOT || amsId.startsWith("HT-");
     }
 
     function gcodeStateBadge(state) {

@@ -120,7 +120,7 @@ const amsId = {
     name: "amsId",
     in: "path",
     required: true,
-    description: "The slot label: `A1` to `D4` for the AMS units, `HT-A` and following for an AMS HT, `External` for the spool holder and `External-2` for the second holder of a dual nozzle printer.",
+    description: "The slot label: `A1` to `D4` for the AMS units, `HT-A` and following for an AMS HT, `E1` to `E9` for the AMS 3H of an H3C, `External` for the spool holder, `External-2` for the second holder of a dual nozzle printer and `External-3` to `External-9` for the further holders of an H3C.",
     schema: t.string(null, { example: "A1" }),
 };
 
@@ -213,8 +213,8 @@ const schemas = {
     }, { required: ["ok"] }),
 
     AmsEnvironment: t.object({
-        amsId: t.string("The unit letter, `A` to `D`, or `HT-A` and following."),
-        model: t.nullable(t.string("`AMS`, `AMS Lite`, `AMS 2 Pro` or `AMS HT`, once the printer has named it.")),
+        amsId: t.string("The unit letter, `A` to `D`, `E` for the AMS 3H of an H3C, or `HT-A` and following."),
+        model: t.nullable(t.string("`AMS`, `AMS Lite`, `AMS 2 Pro`, `AMS HT` or `AMS 3H`, once the printer has named it.")),
         humidity: t.nullable(t.integer("Bambu's level, 1 (dry) to 5 (wet).")),
         humidityPercent: t.nullable(t.number()),
         temperature: t.nullable(t.number("Degrees Celsius.")),
@@ -1414,7 +1414,7 @@ export function buildOpenApiDocument() {
                 "request that changes something and comes from another origin, is answered with 403, the login routes included.",
                 "",
                 "**Slot labels** count the way the printer does: `A1` is the first slot of the first AMS, `External` the spool holder,",
-                "`External-2` the second holder of a dual nozzle printer, `HT-A` the first AMS HT.",
+                "`External-2` the second holder of a dual nozzle printer, `HT-A` the first AMS HT, `E1` the first slot of the AMS 3H of an H3C.",
             ].join("\n"),
             license: { name: "GPL-3.0", url: "https://github.com/Rdiger-36/HaspelSync/blob/main/LICENSE" },
         },

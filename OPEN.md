@@ -30,6 +30,27 @@ Ordered by how likely a user is to hit it.
   the first layer seen after the restart, so the slot that ran out carries the
   layers in between; that case is covered by `test/printstate.test.js` only.
 
+- [ ] **The H3C with its AMS 3H (issue #262).** Read off one user's raw MQTT
+  trace of 2026-11-16 (`test/fixtures/reports/h3c.json`) and ha-bambulab's
+  H3C payload, not run against the printer. Settled by the trace: the AMS 3H
+  is unit 32 with nine slots, now `E1` to `E9`; `print.mapping` and
+  `device.extruder.info[].snow` both name the running slot as unit 32 slot 2
+  (8194); `tray_now` "2" counts within the unit and is no longer read once a
+  printer sent `snow`. Still open:
+  - a print booked end to end, which the user's next print with a dev image
+    answers, and the merge and the assignment on a real slot
+  - how Bambu Studio and the printer's screen name the nine slots, asked in
+    the issue; `E` is this service's letter, bound to unit 32
+  - the holders: `vir_slot` carries 247 to 255, one per tool (id = 255 minus
+    the tool index, read off `device.nozzle.info[].snow`), all empty in the
+    trace. Labelled `External` to `External-9`, never seen loaded
+  - an AMS unit connected to the first tool next to the AMS 3H, which should
+    keep `A` to `D`; and where Bambu Studio puts the AMS 3H in its filament
+    list, which only matters if `print.mapping` is ever missing
+  - `tray_exist_bits` read "f0000000" with slots 0 to 3 loaded, which looks
+    like a 32 bit mask counted from the top. Nothing here reads the field, so
+    it stays an observation. `cfs` [2,5,7], `csl` [8194] and the drying zones in
+    `zone_info` are not read either
 - [x] **Booking a print as it actually finishes.** Done on 2026-09-01 against
   the P2S, seven cancelled prints against a throwaway Spoolman. `useSpoolWeight()`
   reached it six times and the partial maths was exact: at layer 3 of a

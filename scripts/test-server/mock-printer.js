@@ -124,11 +124,13 @@ function parsePublish(payload, flags) {
  * @param {object[]} units - the AMS units of the report, for their ids
  * @param {string} family - the prefix for the four slot units: `ams` for the
  *   original AMS, `ams_f1` for an AMS Lite, `n3f` for an AMS 2 Pro. An HT is
- *   always `n3s`, nothing else sits at unit id 128 and up
+ *   always `n3s`, nothing else sits at unit id 128 and up, and unit 32 is
+ *   always the AMS 3H of an H3C, `n10a` with the unit id in its own `id`
+ *   field, as ha-bambulab's H3C payload carries it
  */
 function versionAnswer(serial, units, family) {
-    const HARDWARE = { ams: "AMS08", ams_f1: "AMS_F102", n3f: "N3F01", n3s: "N3S01" };
-    const NAMES = { ams: "AMS (1)", ams_f1: "AMS Lite", n3f: "AMS 2 Pro", n3s: "AMS HT" };
+    const HARDWARE = { ams: "AMS08", ams_f1: "AMS_F102", n3f: "N3F01", n3s: "N3S01", n10a: "N10A05" };
+    const NAMES = { ams: "AMS (1)", ams_f1: "AMS Lite", n3f: "AMS 2 Pro", n3s: "AMS HT", n10a: "AMS 3H" };
     const modules = [
         { name: "ota", sw_ver: "01.10.00.00", hw_ver: "OTA", loader_ver: "00.00.00.00", sn: serial, product_name: "Mock printer", visible: true, flag: 0 },
     ];
@@ -136,9 +138,10 @@ function versionAnswer(serial, units, family) {
     for (const unit of units) {
         const id = Number(unit.id);
         if (!Number.isInteger(id)) continue;
-        const prefix = id >= 128 ? "n3s" : family;
+        const prefix = id >= 128 ? "n3s" : (id === 32 ? "n10a" : family);
         modules.push({
-            name: `${prefix}/${id}`,
+            name: prefix === "n10a" ? prefix : `${prefix}/${id}`,
+            ...(prefix === "n10a" ? { id } : {}),
             sw_ver: "01.00.06.00",
             hw_ver: HARDWARE[prefix],
             loader_ver: "00.00.00.00",

@@ -1,4 +1,12 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - The H3C is supported. Its AMS 3H reports as one unit with nine slots under a unit number no other AMS uses, and every one of its slots was named "Z": the slots could not be told apart, merging a spool failed with "Cannot read properties of null", an assignment landed on whichever "Z" slot came first and a print was booked on no spool at all, because the slot it ran from was reported in the same numbering. The nine slots are now `E1` to `E9`, the slot a print runs from is read in that numbering, and the AMS 3H is named as such once the printer has said which units it has. The dashboard shows it as one table of nine slots under "AMS 3H E" instead of three tables of four, four and one. `A1` to `D4` stay free for the AMS units that can be connected to its first tool (issue #262)
+      - An empty slot of the AMS 3H is shown as empty. It reports one field more than the empty slot of any other AMS, and that field made it look like a 3rd party spool waiting for an assignment (issue #262)
+      - The H3C reports a spool holder for each of its nine tools. The first two keep the labels `External` and `External-2` every dual nozzle printer has, the others are `External-3` to `External-9`. Not seen with a spool on it yet (issue #262)
+      - The slot a print runs from, as `/api/status` reports it, is no longer read from `tray_now` on a printer that names it per nozzle. The H3C sends both, and its `tray_now` counts the slots within its unit, which read as a slot of the first AMS (issue #262)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.2
    - Fixes:
       - A print of a file that was changed and sent again under the same name is weighed from the new file. The printer can keep both copies, one in its cache and one on the storage root, and the service read whichever name it tried first, which could be the old file. It now asks the printer when each copy was written and reads the newest (issue #252)

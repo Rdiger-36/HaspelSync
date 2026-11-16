@@ -495,6 +495,27 @@ async function unlinkOtherBambuTags(spoolData, spool) {
 }
 
 /**
+ * The answer for a slot action whose slot lacks what the action writes from.
+ *
+ * The dashboard offers an action only for a slot that has it, so this is what
+ * a stale page, a direct API call or a slot label shared by two slots reaches.
+ * The last one is how issue #262 found it: every slot of an H3C was labelled
+ * "Z", the merge was resolved to an empty one, and `mergeSpool()` read the id
+ * of a spool that was not there, which reached the browser as a TypeError.
+ * The route answers the `code` with 409, because the request does not fit the
+ * slot as it is now rather than Spoolman refusing anything.
+ *
+ * @param {object} spoolData - the UI spool the action was asked for
+ * @param {string} code - what is missing, see the error codes of the Web UI
+ * @param {string} error - the same in English, for the log and the API
+ * @returns {{ok: false, error: string, code: string}}
+ */
+function missingForAction(spoolData, code, error) {
+    console.error(spoolData?.printerName ?? "Server", spoolData?.logFilePath ?? serverLogFilePath, `    Slot ${spoolData?.amsId ?? "?"}: ${error}`);
+    return { ok: false, error, code };
+}
+
+/**
  * Creates a spool for an AMS slot whose filament already exists in Spoolman,
  * tagged with the slot's tray_uuid so it is recognised from then on.
  *
@@ -502,9 +523,12 @@ async function unlinkOtherBambuTags(spoolData, spool) {
  * abort the remaining slots of the same AMS update.
  *
  * @param {object} spoolData - the UI spool, carrying slot and matched filament
- * @returns {Promise<{ok: boolean, error?: string}>} what became of the write
+ * @returns {Promise<{ok: boolean, error?: string, code?: string}>} what became of the write
  */
 export async function createSpool(spoolData) {
+    if (!spoolData?.slot || spoolData.matchingInternalFilament?.id == null) {
+        return missingForAction(spoolData, "noMatchingFilament", "There is no Spoolman filament to create a spool from for this slot");
+    }
     const postData = buildSpoolPayload(spoolData, spoolData.matchingInternalFilament.id);
 
     debug("spoolman", spoolData.printerName, spoolData.logFilePath, "    Sending POST request to:", `${spoolmanUrl()}/api/v1/spool`);
@@ -587,9 +611,12 @@ export function buildFilamentPayload(spoolData) {
  * createSpool, failures are reported rather than thrown.
  *
  * @param {object} spoolData - the UI spool, carrying slot and catalogue entry
- * @returns {Promise<{ok: boolean, error?: string}>} what became of the write
+ * @returns {Promise<{ok: boolean, error?: string, code?: string}>} what became of the write
  */
 export async function createFilamentAndSpool(spoolData) {
+    if (!spoolData?.slot || !spoolData.matchingExternalFilament) {
+        return missingForAction(spoolData, "noCatalogueFilament", "There is no catalogue filament to create filament and spool from for this slot");
+    }
     let filamentId;
 
     try {
@@ -648,10 +675,13 @@ export async function createFilamentAndSpool(spoolData) {
  * record would keep answering to the old chip as well.
  *
  * @param {object} spoolData - the UI spool, carrying slot and mergeableSpool
- * @returns {Promise<{ok: boolean, error?: string}>} what became of the write
+ * @returns {Promise<{ok: boolean, error?: string, code?: string}>} what became of the write
  */
 export async function mergeSpool(spoolData) {
-    const spool = spoolData.mergeableSpool;
+    const spool = spoolData?.mergeableSpool;
+    if (!spoolData?.slot || spool?.id == null) {
+        return missingForAction(spoolData, "nothingToMerge", "There is no Spoolman spool to merge this slot with");
+    }
     const legacy = writesLegacyTag();
     const postData = legacy ? legacyTagExtra(spoolData.slot.tray_uuid) : legacyTagExtra("");
     const patchNeeded = legacy || !!spool.extra?.tag;

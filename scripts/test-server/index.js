@@ -48,6 +48,9 @@ import { AMS_UNITS, EXTERNAL_SPOOL } from "./scenario.js";
  * P2S carries and is the default, `ams` for an original AMS, `ams_f1` for an
  * AMS Lite. An HT always answers as one. The dashboard names the units from
  * that answer, so `--report p1s --ams-model ams` is a P1S with its original AMS.
+ * A comma separated list gives each four slot unit its own, in unit order, the
+ * last one standing for the rest: `ams,ams_f1,n3f` is A an original AMS, B a
+ * Lite and C and D a 2 Pro.
  *
  * `--delta-reports` makes the mock printer leave the external spool holder out
  * of every second report, with `msg` 1, the way a P1S sends delta reports
@@ -141,8 +144,8 @@ function readOptions(argv) {
                 i += 3;
                 break;
             case "--ams-model":
-                if (!["n3f", "ams", "ams_f1"].includes(value)) {
-                    console.error("--ams-model takes n3f (AMS 2 Pro), ams (original AMS) or ams_f1 (AMS Lite)");
+                if (!value || !value.split(",").every(model => ["n3f", "ams", "ams_f1"].includes(model))) {
+                    console.error("--ams-model takes n3f (AMS 2 Pro), ams (original AMS) or ams_f1 (AMS Lite), or a comma separated list of them, one per four slot unit");
                     process.exit(2);
                 }
                 options.amsModel = value;

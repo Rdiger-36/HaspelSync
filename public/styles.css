@@ -829,15 +829,148 @@ caption.ams-env .ams-env-unit {
   color: var(--text-soft);
 }
 
-caption.ams-env .ams-env-drying {
-  color: var(--warn);
-  font-weight: 600;
+caption.ams-env .ams-env-drying-mark {
+  cursor: help;
 }
+
+/* ---- Dryer card ----
+   One row per running dryer, above the slot tables. Columns line up across
+   the rows on a wide screen, so several dryers compare at a glance. */
+.dryer-card {
+  /* Framed like the slot tables, so it reads as one of them on a light page */
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 16px;
+  font-size: 0.92em;
+  overflow: hidden;
+}
+
+/* The head is the control, as on a unit: the whole line folds the rows */
+.dryer-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 12px 8px 16px;
+  background: var(--head-bg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dryer-card-title { font-weight: 600; }
+.dryer-card-count { color: var(--text-muted); white-space: nowrap; }
+/* Each count is one piece: the line breaks between them, never inside */
+.dryer-card-summary { display: none; flex-wrap: wrap; gap: 2px 14px; }
+.dryer-card-summary > span { white-space: nowrap; }
+.dryer-summary-warm { color: var(--warn); }
+.dryer-summary-cool { color: var(--accent-text); }
+.dryer-summary-error { color: var(--bad); }
+.dryer-card-head .ams-toggle { margin-left: auto; }
+.dryer-card-head:hover .ams-toggle { color: var(--text); }
+
+.dryer-card.is-collapsed .dryer-rows { display: none; }
+.dryer-card.is-collapsed .dryer-card-summary { display: inline-flex; font-weight: 600; }
+.dryer-card.is-collapsed .ams-toggle svg { transform: rotate(-90deg); }
+
+/* One grid for all rows, so the columns line up from row to row. No column
+   gap: the cells carry the spacing themselves, so the separator under each
+   row runs through without a break. */
+.dryer-rows {
+  display: grid;
+  grid-template-columns: max-content max-content max-content minmax(max-content, 1fr) max-content;
+  align-items: center;
+}
+
+.dryer-row { display: contents; }
+
+.dryer-row > span {
+  white-space: nowrap;
+  padding: 7px 18px 7px 0;
+  border-top: 1px solid var(--border);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+/* The column names, set like the head of a slot table */
+.dryer-row-head > span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-quiet);
+  font-weight: 600;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.dryer-row > span:first-child { padding-left: 16px; }
+.dryer-row > span:last-child { padding-right: 16px; }
+
+.dryer-unit { font-weight: 600; }
+.dryer-warm .dryer-unit { color: var(--warn); }
+.dryer-cool .dryer-unit { color: var(--accent-text); }
+.dryer-error .dryer-unit { color: var(--bad); }
+.dryer-details, .dryer-left { color: var(--text-muted); }
+
+.dryer-bar {
+  display: block;
+  width: 100%;
+  min-width: 80px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.dryer-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+}
+
+/* Stacked, when the columns do not fit the card on one line: on a phone, and
+   on a narrow window in a language with long words. renderDryerCard()
+   measures it rather than guessing a breakpoint, because the width the
+   columns need depends on the language. Each row then puts the unit and its
+   state on one line and the rest below, with the bar across the full width,
+   and the column names go, since there are no columns left to name. */
+.dryer-card.is-stacked .dryer-rows { display: block; }
+.dryer-card.is-stacked .dryer-row.dryer-row-head { display: none; }
+
+.dryer-card.is-stacked .dryer-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dryer-card.is-stacked .dryer-row > span { padding: 0; border-top: 0; }
+/* A long state ("Heizung lässt sich nicht stoppen") wraps inside its own
+   column, right aligned, rather than pushing past the card's edge */
+.dryer-card.is-stacked .dryer-state { white-space: normal; text-align: right; justify-content: flex-end; }
+.dryer-card.is-stacked .dryer-progress { grid-column: 1 / -1; }
+.dryer-card.is-stacked .dryer-progress:empty,
+.dryer-card.is-stacked .dryer-details:empty,
+.dryer-card.is-stacked .dryer-left:empty { display: none; }
 
 /* The readings sit in a span of their own, so each needs the spacing the
    direct children have. */
 caption.ams-env .ams-env-readings > span {
   margin-right: 12px;
+}
+
+/* A drying zone of the AMS 3H groups its readings behind the slots it holds,
+   so the spans inside it need the spacing the direct children have. */
+caption.ams-env .ams-env-zone > span + span {
+  margin-left: 8px;
+}
+
+caption.ams-env .ams-env-zone-slots {
+  color: var(--text-soft);
+  font-weight: 600;
 }
 
 /* ---- Folding a unit ----
@@ -3154,13 +3287,12 @@ a.menu-foot-update:hover { text-decoration: underline; }
     color: var(--text);
   }
 
-  /* The drying cycle carries a target and a countdown, which is more than fits
-     next to the humidity on a phone. Its own line, under the readings it
-     belongs to. */
-  caption.ams-env .ams-env-drying {
-    flex-basis: 100%;
-    text-align: center;
-  }
+  /* On a phone the counts of a folded card take a line of their own under
+     the title, which keeps the chevron on the first line at the right. The
+     chevron itself is ordered 10 on a phone, see `.ams-toggle` below. */
+  .dryer-card-summary { order: 20; flex-basis: 100%; }
+
+
 
 
 

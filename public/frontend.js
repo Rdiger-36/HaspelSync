@@ -1,7 +1,5 @@
 import {
     ACTIVE_PRINT_STATES,
-    EXTERNAL_SLOT,
-    SECOND_EXTERNAL_SLOT,
     SLOT_OPTIONS,
     allToday,
     correctRemainInt,
@@ -10,7 +8,10 @@ import {
     formatDate,
     formatMoment,
     formatRemaining,
+    groupSlotsByUnit,
     humanLayers,
+    isExternalSlot,
+    isSingleSlotLabel,
     normColor,
     slotColors,
     slotLocation,
@@ -115,6 +116,8 @@ const renderedSpools = new Map();
 
 // Initialize the document once it has fully loaded
 document.addEventListener("DOMContentLoaded", () => {
+    // The dryer card chooses between columns and stacked rows by what fits
+    window.addEventListener("resize", () => fitDryerCard());
 
     document.getElementById("monitoring-toggle").addEventListener("change", toggleMonitoring);
 
@@ -124,6 +127,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("spool-list").addEventListener("click", event => {
         // The header of a unit folds its slots away and back. The whole line
         // is the control, the chevron in it only says so.
+        // The dryer card folds the same way, under a key no unit label takes
+        if (event.target.closest(".dryer-card-head")) {
+            setUnitCollapsed(DRYER_CARD_KEY, !collapsedUnits().has(DRYER_CARD_KEY));
+            renderDryerCard();
+            return;
+        }
+
         const caption = event.target.closest("caption.ams-env");
         if (caption) {
             const table = caption.closest("table");
@@ -182,6 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // fight the column width sync for nothing.
             setAmsEnv(data.amsEnv);
             refreshAmsEnvCaptions();
+            renderDryerCard();
         } else if (data.type === 'print_filaments' && data.printer === printerId && !isDialogOpen()) {
             // A spool was named for a filament swapped onto the external
             // holder, here or in another tab
@@ -487,8 +498,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // One table per AMS unit: the four slot units in tables of four, the single
-    // slot ones (AMS HT and the external spool holder) in a table of their own.
+    // One table per AMS unit: the units with numbered slots in one table each,
+    // whatever their size (four for an AMS, nine for the AMS 3H of an H3C), the
+    // single slot ones (AMS HT and the external spool holders) in a table of
+    // their own. The grouping is groupSlotsByUnit() in shared.js.
     //
     // Both views group their slots this way and each used to write the grouping
     // out itself, the classic one with its header block spelled out a second
@@ -539,12 +552,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return table;
         };
 
-        const normalAMS = spools.filter(s => !isSingleSlotUnit(s.amsId));
-        const singles = spools.filter(s => isSingleSlotUnit(s.amsId));
-
-        const tables = [];
-        for (let i = 0; i < normalAMS.length; i += 4) tables.push(makeTable(normalAMS.slice(i, i + 4)));
-        for (const single of singles) tables.push(makeTable([single]));
+        const tables = groupSlotsByUnit(spools).map(makeTable);
 
         if (!tables.length && emptyMessage) {
             const empty = makeTable([]);
@@ -557,11 +565,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // The unit a slot belongs to, as the AMS environment readings are keyed.
-    // A four slot unit is the letter of its label, a single slot unit is the
-    // whole label, because "HT-A" carries no slot number to strip.
+    // A unit with numbered slots is the letter of its label, a single slot
+    // unit is the whole label, because "HT-A" carries no slot number to strip.
     function amsUnitKey(amsId) {
         if (!amsId) return "";
-        return isSingleSlotUnit(amsId) ? amsId : amsId.charAt(0);
+        return isSingleSlotLabel(amsId) ? amsId : amsId.charAt(0);
     }
 
     // Mirrors the readings from /api/status or an ams_env event. A payload
@@ -605,32 +613,193 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
     }
 
+    // Humidity and temperature of a unit or of one of its drying zones, as
+    // spans. The original AMS has no percentage, only the five step level the
+    // printer shows as a bar, spelled out rather than drawn because there is
+    // no percentage to put next to it. Inside a zone the zone's own title
+    // says where the reading was taken, so the spans carry none of theirs.
+    function readingSpans(env, titled = true) {
+        const tip = key => titled ? ` title="${escapeHtml(t(key))}"` : "";
+        const parts = [];
+        if (env.humidityPercent !== null && env.humidityPercent !== undefined) {
+            const level = env.humidity ? ` (${t("dashboard.env.level", { level: env.humidity })})` : "";
+            parts.push(`<span${tip(level ? "dashboard.env.humidityTitleLevel" : "dashboard.env.humidityTitle")}>💧 ${env.humidityPercent} %${escapeHtml(level)}</span>`);
+        } else if (env.humidity !== null && env.humidity !== undefined) {
+            parts.push(`<span${tip("dashboard.env.levelOnlyTitle")}>💧 ${escapeHtml(t("dashboard.env.level", { level: env.humidity }))}</span>`);
+        }
+        if (env.temperature !== null && env.temperature !== undefined) {
+            parts.push(`<span${tip("dashboard.env.temperatureTitle")}>🌡️ ${env.temperature} °C</span>`);
+        }
+        return parts;
+    }
+
     // The readings of one unit, as the spans of its header.
+    //
+    // A unit with drying zones, the AMS 3H of an H3C, has no reading of its
+    // own: the server sends one per zone, each with the slots it holds. The
+    // seven ordinary slots read like any unit, the two drying slots follow
+    // with their slots named, the way Bambu Studio draws them apart.
     function amsEnvReadingsHtml(unitKey) {
         const env = amsEnvByUnit[unitKey];
         if (!env) return "";
 
         const parts = [];
-        if (env.humidityPercent !== null && env.humidityPercent !== undefined) {
-            const level = env.humidity ? ` (${t("dashboard.env.level", { level: env.humidity })})` : "";
-            const title = t(level ? "dashboard.env.humidityTitleLevel" : "dashboard.env.humidityTitle");
-            parts.push(`<span title="${escapeHtml(title)}">💧 ${env.humidityPercent} %${escapeHtml(level)}</span>`);
-        } else if (env.humidity !== null && env.humidity !== undefined) {
-            // The original AMS has no percentage, only the five step level the
-            // printer shows as a bar. Spelled out rather than drawn, because
-            // there is no percentage to put next to it.
-            parts.push(`<span title="${escapeHtml(t("dashboard.env.levelOnlyTitle"))}">💧 ${escapeHtml(t("dashboard.env.level", { level: env.humidity }))}</span>`);
+        if (Array.isArray(env.zones) && env.zones.length) {
+            for (const zone of env.zones) {
+                const readings = readingSpans(zone, false);
+                if (!readings.length) continue;
+                const slots = (zone.slots || []).join(", ");
+                const title = t(zone.dryer ? "dashboard.env.dryerZoneTitle" : "dashboard.env.zoneTitle", { slots });
+                const name = zone.dryer ? `<span class="ams-env-zone-slots">${escapeHtml(slots)}</span>` : "";
+                parts.push(`<span class="ams-env-zone" title="${escapeHtml(title)}">${name}${readings.join("")}</span>`);
+            }
+        } else {
+            parts.push(...readingSpans(env));
         }
-        if (env.temperature !== null && env.temperature !== undefined) {
-            parts.push(`<span title="${escapeHtml(t("dashboard.env.temperatureTitle"))}">🌡️ ${env.temperature} °C</span>`);
-        }
+        // A unit that is drying says so with a mark; what the dryer is doing
+        // is in the dryer card above the tables
         if (env.drying?.active) {
-            const target = env.drying.targetTemp ? ` ${t("dashboard.env.dryingAt", { temp: env.drying.targetTemp })}` : "";
-            const left = env.drying.remainingMinutes ? `, ${t("dashboard.env.dryingLeft", { minutes: env.drying.remainingMinutes })}` : "";
-            parts.push(`<span class="ams-env-drying" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">♨️ ${escapeHtml(t("dashboard.env.drying"))}${escapeHtml(target)}${escapeHtml(left)}</span>`);
+            parts.push(`<span class="ams-env-drying-mark" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">${dryerIcon(env.drying)}</span>`);
         }
 
         return parts.join("");
+    }
+
+    // The key the dryer card's fold is kept under, next to the units' own.
+    // Not a slot label, so it can never fold a unit by accident.
+    const DRYER_CARD_KEY = "#dryers";
+
+    // How a running dryer looks: amber while it works, blue while it cools
+    // down, red when it reports a fault.
+    function dryerTone(drying) {
+        const status = dryerStatus(drying);
+        if (status === "cooling") return "cool";
+        if (status === "error" || status === "heatOutOfControl") return "error";
+        return "warm";
+    }
+
+    function dryerIcon(drying) {
+        return { cool: "❄️", error: "⚠️", warm: "♨️" }[dryerTone(drying)];
+    }
+
+    // A cycle known only by its countdown has no state of its own and reads
+    // as drying, which is all the countdown can say.
+    function dryerStatus(drying) {
+        return drying.status && drying.status !== "off" ? drying.status : "drying";
+    }
+
+    // The dryer card: one row per unit whose dryer is running, above the slot
+    // tables, so the tables read the same for every unit whether it dries or
+    // not and several dryers can be compared at a glance. Gone while nothing
+    // dries. Each row says which unit (and on an AMS 3H which slots), what the
+    // cycle is doing, the temperature and filament it was set to, how far it
+    // is where the setting says how long it runs, and the time left.
+    function dryerCardHtml() {
+        // In the order the tables stand in, which is unit order; the readings
+        // come in the order of the report, where the AMS 3H can sit anywhere
+        const order = [...document.querySelectorAll("caption.ams-env")].map(caption => caption.dataset.unit);
+        const rank = unitKey => (order.indexOf(unitKey) + 1) || order.length + 1;
+        const running = Object.entries(amsEnvByUnit)
+            .filter(([, env]) => env?.drying?.active)
+            .sort(([a], [b]) => rank(a) - rank(b));
+        if (!running.length) return "";
+
+        const rows = running.map(([unitKey, env]) => {
+            const drying = env.drying;
+            const status = dryerStatus(drying);
+            const stateKey = `dashboard.env.dryStatus.${status}`;
+            let state = I18N.has(stateKey) ? t(stateKey) : status;
+            if (status === "drying" && drying.phase && I18N.has(`dashboard.env.dryPhase.${drying.phase}`)) {
+                state += ` (${t(`dashboard.env.dryPhase.${drying.phase}`)})`;
+            }
+            const details = [];
+            if (drying.targetTemp) details.push(`${drying.targetTemp} °C`);
+            if (drying.filament) details.push(drying.filament);
+
+            const slots = Array.isArray(drying.slots) && drying.slots.length ? ` ${drying.slots.join(", ")}` : "";
+            const name = `${amsUnitLabel(unitKey, env).label}${slots}`;
+
+            let bar = "";
+            if (status === "drying" && drying.durationHours && drying.remainingMinutes != null) {
+                const done = Math.min(100, Math.max(0, Math.round((1 - drying.remainingMinutes / (drying.durationHours * 60)) * 100)));
+                bar = `<span class="dryer-bar" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="100"><span style="width:${done}%"></span></span>`;
+            }
+            const left = drying.remainingMinutes > 0
+                ? escapeHtml(t("dashboard.env.dryLeft", { time: formatRemaining(drying.remainingMinutes) }))
+                : "";
+
+            return `<div class="dryer-row dryer-${dryerTone(drying)}">` +
+                `<span class="dryer-unit">${dryerIcon(drying)} ${escapeHtml(name)}</span>` +
+                `<span class="dryer-state">${escapeHtml(state)}</span>` +
+                `<span class="dryer-details">${escapeHtml(details.join(" · "))}</span>` +
+                `<span class="dryer-progress">${bar}</span>` +
+                `<span class="dryer-left">${left}</span>` +
+                `</div>`;
+        });
+
+        // Folded, the head keeps one symbol per kind with how many dryers it
+        // stands for, so a fault or a cycle cooling down is still seen without
+        // opening the card. The tooltip names the units.
+        const collapsed = collapsedUnits().has(DRYER_CARD_KEY);
+        const byTone = new Map();
+        for (const [unitKey, env] of running) {
+            const tone = dryerTone(env.drying);
+            if (!byTone.has(tone)) byTone.set(tone, []);
+            byTone.get(tone).push(amsUnitLabel(unitKey, env).label);
+        }
+        const summary = ["warm", "cool", "error"].filter(tone => byTone.has(tone)).map(tone => {
+            const units = byTone.get(tone);
+            const icon = { cool: "❄️", error: "⚠️", warm: "♨️" }[tone];
+            return `<span class="dryer-summary-${tone}" title="${escapeHtml(units.join(", "))}">${icon} ${escapeHtml(t(`dashboard.dryers.tone.${tone}`, { count: units.length }))}</span>`;
+        }).join("");
+        const toggle = t(collapsed ? "dashboard.unit.expand" : "dashboard.unit.collapse");
+        const head = `<div class="dryer-card-head">` +
+            `<span class="dryer-card-title">${escapeHtml(t("dashboard.dryers.title"))}</span>` +
+            `<span class="dryer-card-count">${escapeHtml(t("dashboard.dryers.running", { count: running.length }))}</span>` +
+            `<span class="dryer-card-summary">${summary}</span>` +
+            `<button type="button" class="ams-toggle" aria-expanded="${!collapsed}" title="${escapeHtml(toggle)}" aria-label="${escapeHtml(toggle)}">` +
+                `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+            `</button>` +
+            `</div>`;
+
+        // Column names, like the slot tables carry them. Only where every row
+        // fits on one line; on a phone the rows stack and the header is hidden.
+        const columns = ["unit", "state", "setting", "progress", "left"]
+            .map(column => `<span>${escapeHtml(t(`dashboard.dryers.column.${column}`))}</span>`).join("");
+        return `${head}<div class="dryer-rows"><div class="dryer-row dryer-row-head" aria-hidden="true">${columns}</div>${rows.join("")}</div>`;
+    }
+
+    // Puts the dryer card in front of the first slot table, updates it in
+    // place, or takes it away. Called after either view has built its tables
+    // and on every ams_env event, which is how a cycle starting or ending
+    // shows without a rebuild.
+    function renderDryerCard() {
+        const list = getElementSafe("spool-list");
+        if (!list) return;
+        const existing = list.querySelector(":scope > .dryer-card");
+        const html = dryerCardHtml();
+        if (!html) {
+            existing?.remove();
+            return;
+        }
+        const card = existing ?? document.createElement("div");
+        card.className = "dryer-card";
+        card.classList.toggle("is-collapsed", collapsedUnits().has(DRYER_CARD_KEY));
+        card.innerHTML = html;
+        if (!existing) list.insertBefore(card, list.querySelector(":scope > table"));
+        fitDryerCard(card);
+    }
+
+    // Columns only where every row fits on one line, stacked rows otherwise.
+    // Measured rather than tied to a breakpoint: the width the columns need
+    // depends on the language ("Fortschritt", "noch ~ 5 Stunden 10 min") as
+    // much as on the window. Folded, there is nothing to measure, and the
+    // next unfold renders the card again.
+    function fitDryerCard(card = document.querySelector(".dryer-card")) {
+        if (!card || card.classList.contains("is-collapsed")) return;
+        card.classList.remove("is-stacked");
+        const rows = card.querySelector(".dryer-rows");
+        if (rows && rows.scrollWidth > rows.clientWidth + 1) card.classList.add("is-stacked");
     }
 
     /* ---- Folding a unit ----
@@ -772,6 +941,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Every column to its widest cell, so the tables of the units line up.
         synchronizeSelectedColumns(SYNCED_COLUMNS);
+        renderDryerCard();
     }
 
     function synchronizeSelectedColumns(indices) {
@@ -1559,7 +1729,7 @@ document.addEventListener("DOMContentLoaded", () => {
             suggested = true;
 
             const ranked = rankCatalogueEntries([...catalogue.values()], slot, {
-                external: amsSpool.amsId === EXTERNAL_SLOT || amsSpool.amsId === SECOND_EXTERNAL_SLOT,
+                external: isExternalSlot(amsSpool.amsId),
                 line: defaults.line,
             });
             const best = ranked[0];
@@ -2581,14 +2751,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 1000);
     }
 
-    // Slots that stand alone rather than filling a four slot AMS unit. An
-    // external spool holder reports one spool and gets a table of its own, like
-    // an AMS HT unit, because it belongs to no four slot unit and would
-    // otherwise break their grouping. A dual nozzle printer has two of them.
-    function isSingleSlotUnit(amsId) {
-        return amsId === EXTERNAL_SLOT || amsId === SECOND_EXTERNAL_SLOT || amsId.startsWith("HT-");
-    }
-
     function gcodeStateBadge(state) {
         const variants = {
             RUNNING: "gc-state-running", FINISH: "gc-state-done",
@@ -2645,6 +2807,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Every column to its widest cell, so AMS A / AMS B / … line up.
             synchronizeSelectedColumns(SYNCED_COLUMNS);
+            renderDryerCard();
 
             const missing = buildGcodeMissing(printData);
             if (missing) el.appendChild(missing);
@@ -3621,7 +3784,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                showNotification(t("dashboard.error", { error: err.error || t("dashboard.actionFailed") }), "error");
+                // In the viewer's language where the answer carries a code
+                const message = err.code || err.error ? I18N.errorText(err, res.status) : t("dashboard.actionFailed");
+                showNotification(t("dashboard.error", { error: message }), "error");
                 button.textContent = originalText;
                 button.disabled = false;
                 return;

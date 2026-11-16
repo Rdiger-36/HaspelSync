@@ -5,7 +5,7 @@ import { createInterface } from "readline";
 import { createHash } from "crypto";
 import { createInflateRaw, inflateRawSync } from "zlib";
 
-import { EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT, convertAMSandSlot, describeConnectionError, connectionErrorCode } from "./utils.js";
+import { EXTERNAL_SLOT, isExternalSlot, convertAMSandSlot, describeConnectionError, connectionErrorCode } from "./utils.js";
 import { debug, trace } from "./logger.js";
 import { normColor } from "../public/shared.js";
 
@@ -1059,6 +1059,11 @@ export function decodeStudioMapping(command) {
  * stages below it then decide exactly as they did before positions were used at
  * all. See `test/gcode.dualnozzle.test.js`.
  *
+ * The nine slots of an AMS 3H, `E1` to `E9`, follow the four slot units and
+ * come before the holders. That is not measured: the one H3C seen so far
+ * (issue #262) reports `print.mapping`, so the estimate never decides there,
+ * and an unmeasured position costs as little as the dual nozzle case does.
+ *
  * This is the fallback for a printer that does not report `print.mapping`,
  * which answers the same question and is right where this is only sometimes:
  * measured on a P2S, it named the right slots for a project synchronised with
@@ -1075,14 +1080,23 @@ export function orderedAmsSlots(amsIds) {
     // One letter and one digit, so lexicographic order is by unit id and then
     // by slot within the unit.
     const fourSlotUnits = ids.filter(id => /^[A-D][1-4]$/.test(id)).sort();
+    // One letter and one digit as well, so the same sort holds
+    const nineSlotUnits = ids.filter(id => /^E[1-9]$/.test(id)).sort();
 
     const highTemperature = ids.filter(id => /^HT-[A-H]$/.test(id)).sort();
     // 255 before 254, which is the order the printer numbers them in and the
     // order of the extruders they feed. Not measured against a slice file,
-    // like the HT, and covered by the same refusal in slotConfirmsSlice.
-    const external = [EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT].filter(id => ids.includes(id));
+    // like the HT, and covered by the same refusal in slotConfirmsSlice. The
+    // further holders of an H3C follow in their own numbering.
+    const external = ids.filter(isExternalSlot).sort(externalOrder);
 
-    return [...fourSlotUnits, ...external, ...highTemperature];
+    return [...fourSlotUnits, ...nineSlotUnits, ...external, ...highTemperature];
+}
+
+/** Sorts holder labels by their number: `External` first, then `External-2` and up. */
+function externalOrder(a, b) {
+    const number = label => label === EXTERNAL_SLOT ? 1 : Number(label.slice(EXTERNAL_SLOT.length + 1));
+    return number(a) - number(b);
 }
 
 /**

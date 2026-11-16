@@ -84,7 +84,7 @@ test("the model settles the dryer: 2 Pro and HT have one, AMS and Lite do not, u
     assert.equal(extractAmsEnvironment([withDryer], models("AMS HT"))[0].drying.active, true);
     // A 2 Pro without the fields, which no report so far has shown, still gets its section
     assert.deepEqual(extractAmsEnvironment([{ id: "0", humidity: "2", humidity_raw: "35", temp: "29.2" }], models("AMS 2 Pro"))[0].drying,
-        { active: false, remainingMinutes: null, targetTemp: null, durationHours: null, filament: null });
+        { active: false, status: null, phase: null, remainingMinutes: null, targetTemp: null, durationHours: null, filament: null });
     assert.equal(extractAmsEnvironment([withDryer])[0].drying.active, true);
 });
 

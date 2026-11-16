@@ -45,8 +45,19 @@ const BRACKETED_TAG = /\[\[ ([^\]]*?) \]\]/g;
 // value is the JSON encoded string, so the quotes around it are escaped. A
 // native Spoolman tag carries it as `uid`, and that one is not always 32
 // characters: a sticker or a chip number somebody linked is 8 to 16, which
-// only the key gives away.
-const JSON_TAG = /("(?:tray_uuid|tag|uid)"\s*:\s*")((?:\\"|[^"])*)(")/g;
+// only the key gives away. The raw printer report carries the chip number as
+// `tag_uid` next to the `tray_uuid`, 16 hex characters, or all zeros for a
+// slot without a chip.
+const JSON_TAG = /("(?:tray_uuid|tag_uid|tag|uid)"\s*:\s*")((?:\\"|[^"])*)(")/g;
+// The serial numbers in a raw printer report: the printer's own, those of the
+// AMS units and, on a printer with a hotend rack, one per hotend under
+// `device.nozzle.info`. A hotend serial is 16 characters, which is not the
+// shape BAMBU_SERIAL looks for, so only the key gives it away (issue #262).
+const JSON_SN = /("sn"\s*:\s*")([^"]*)(")/g;
+// The printer's LAN address in the raw report, `net.info[].ip`: not a dotted
+// string but the four octets read as one little endian 32 bit integer, so the
+// IPV4 pass never sees it (issue #262).
+const JSON_INT_IP = /("ip"\s*:\s*)(\d{1,10})\b/g;
 // A tag of a current AMS is 32 hex characters, which nothing else in a log is,
 // so this catches one wherever it turns up without an anchor to hold on to.
 //
@@ -87,6 +98,41 @@ export function maskTag(value) {
     const tag = String(value ?? "");
     if (isTagPlaceholder(tag) || tag.length <= 4) return tag;
     return tag.slice(0, 4) + "X".repeat(tag.length - 4);
+}
+
+/**
+ * Masks a serial number found under an `sn` key in a raw printer report.
+ *
+ * A printer or AMS serial keeps five characters, exactly as `maskSerial` leaves
+ * it everywhere else in the file, so the same device still reads the same in
+ * every line. Anything else under that key, a hotend serial in particular,
+ * keeps four like a tag: it names one part, not a model or a batch.
+ *
+ * @param {string} value - the serial
+ * @param {string[]} serials - the serials of the configured printers
+ * @returns {string} the masked serial, the same length as the input
+ */
+function maskReportSerial(value, serials) {
+    if (serials.includes(value) || /^(?=[0-9A-Z]{15}$)[0-9A-Z]*\d[0-9A-Z]*$/.test(value)) return maskSerial(value);
+    return maskTag(value);
+}
+
+/**
+ * Masks an IPv4 address that a printer report carries as an integer.
+ *
+ * The integer holds the octets little endian, so the last octet of the dotted
+ * form is the high byte: 1291954368 is 192.168.1.77. The result is the dotted
+ * form with its last octet masked, the same as every other address in the file.
+ * Zero is what an interface without an address reports and stays.
+ *
+ * @param {string|number} value - the address as an unsigned 32 bit integer
+ * @returns {string} the masked dotted address, or the input when it is not one
+ */
+export function maskIntIp(value) {
+    const number = Number(value);
+    if (!Number.isInteger(number) || number <= 0 || number > 0xFFFFFFFF) return String(value);
+    const octets = [0, 8, 16].map(shift => (number >>> shift) & 0xFF);
+    return `${octets.join(".")}.XXX`;
 }
 
 /** True for a string that is an IPv4 address and nothing else. */
@@ -285,11 +331,16 @@ export function maskText(text, known = {}) {
     });
     out = out.replace(LONG_TAG, match => maskTag(match));
 
+    // Before the serial passes, which would otherwise mask a printer serial
+    // here first and leave this pass a value it can no longer recognise
+    const serials = [...(known.serials ?? [])].filter(Boolean);
+    out = out.replace(JSON_SN, (match, head, value, tail) => head + maskReportSerial(value, serials) + tail);
+
     // Serials before codes, and not the other way round: an eight character
     // access code can appear inside a fifteen character serial number, and
     // replacing it first would cut the serial into pieces that the serial pass
     // no longer recognises. Masking the serial first removes that overlap.
-    for (const serial of [...(known.serials ?? [])].filter(Boolean)) {
+    for (const serial of serials) {
         out = out.replaceAll(serial, maskSerial(serial));
     }
     out = out.replace(BAMBU_SERIAL, match => maskSerial(match));
@@ -303,6 +354,12 @@ export function maskText(text, known = {}) {
     }
 
     out = out.replace(IPV4, (match, a, b, c) => `${a}.${b}.${c}.XXX`);
+    // Quoted, because the masked address is no longer a number. The trace is
+    // read by people, nothing parses an exported one back.
+    out = out.replace(JSON_INT_IP, (match, head, value) => {
+        const masked = maskIntIp(value);
+        return masked === value ? match : `${head}"${masked}"`;
+    });
     out = out.replace(JSON_URL, (match, head, value, tail) => head + maskCloudUrl(value) + tail);
 
     return out;

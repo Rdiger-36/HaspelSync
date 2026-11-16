@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - The anonymised diagnostics export masks three more values in the raw MQTT trace: the chip number of an RFID spool (`tag_uid`), the serial numbers of the hotends and the printer's LAN address, which the printer reports as a number rather than in dotted form. The chip number keeps its first four characters like the tag of a spool, the all zero placeholder of a slot without a chip stays, and the address keeps its subnet like every other address in the export (issue #262)
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.2
    - Fixes:
       - A print of a file that was changed and sent again under the same name is weighed from the new file. The printer can keep both copies, one in its cache and one on the storage root, and the service read whichever name it tried first, which could be the old file. It now asks the printer when each copy was written and reads the newest (issue #252)

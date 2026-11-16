@@ -360,13 +360,44 @@ export const EXTERNAL_SLOT = "External";
 export const SECOND_EXTERNAL_SPOOL_ID = 254;
 export const SECOND_EXTERNAL_SLOT = "External-2";
 
+/**
+ * The lowest holder id a printer reports. An H3C has nine tools and reports
+ * one holder per tool in `vir_slot`, 255 for the first tool down to 247 for
+ * the ninth (issue #262). The nozzles say so themselves: the fifth tool names
+ * its source in `device.nozzle.info[].snow` as 0xFBFF, unit 251. The holders
+ * below 254 continue the numbering of the second one, `External-3` to
+ * `External-9`, so the two labels every dual nozzle printer already has on
+ * disk keep their meaning.
+ */
+export const LAST_EXTERNAL_SPOOL_ID = 247;
+
 /** The label of a holder by its unit id, null for anything that is not one. */
 export function externalSlotLabel(unitId) {
     const id = Number(unitId);
     if (id === EXTERNAL_SPOOL_ID) return EXTERNAL_SLOT;
     if (id === SECOND_EXTERNAL_SPOOL_ID) return SECOND_EXTERNAL_SLOT;
+    if (Number.isInteger(id) && id >= LAST_EXTERNAL_SPOOL_ID && id < SECOND_EXTERNAL_SPOOL_ID) {
+        return `${EXTERNAL_SLOT}-${EXTERNAL_SPOOL_ID - id + 1}`;
+    }
     return null;
 }
+
+/** Whether a slot label names an external holder: `External`, `External-2` and up. */
+export function isExternalSlot(amsId) {
+    return typeof amsId === "string" && /^External(-[2-9])?$/.test(amsId);
+}
+
+/**
+ * The AMS 3H of an H3C: one unit with nine slots, reported as unit 32 (issue
+ * #262, and ha-bambulab, which names the module `n10a` with `id` 32). Its
+ * slots are `E1` to `E9`. The letter is bound to the unit id, not to the order
+ * of the units: an H3C takes up to four more AMS units on its first tool, and
+ * those are units 0 to 3 and keep `A` to `D`. The labels are the keys of
+ * `mappings.json`, so the letter must not change once it is on disk.
+ */
+export const AMS_3H_UNIT_ID = 32;
+export const AMS_3H_LETTER = "E";
+export const AMS_3H_SLOTS = 9;
 
 /**
  * The Spoolman location written for a spool in a slot, and the template it is
@@ -392,6 +423,71 @@ export function effectiveLocationFormat(format) {
 export function slotUnit(slot) {
     const match = /^([A-Z])\d+$/.exec(slot);
     return match ? match[1] : slot;
+}
+
+/**
+ * Whether a slot is a unit of its own: an AMS HT or an external holder, which
+ * carry no slot number in their label.
+ */
+export function isSingleSlotLabel(amsId) {
+    return typeof amsId === "string" && (isExternalSlot(amsId) || amsId.startsWith("HT-"));
+}
+
+/**
+ * Where a unit stands on the dashboard: the units with numbered slots by
+ * letter (`A` to `D`, then `E` for the AMS 3H), then the AMS HT units by
+ * letter, then the holders by number, then anything else by name.
+ *
+ * Sorted rather than taken in the order of the report: the printer lists its
+ * units in its own order, which puts an AMS 3H, unit 32, wherever its bus
+ * places it, and the holders arrive after every AMS.
+ *
+ * @param {string} unit - a unit label as `slotUnit()` gives it
+ * @returns {Array} a sort key, compared element by element
+ */
+export function unitSortKey(unit) {
+    const label = String(unit ?? "");
+    if (/^[A-Z]$/.test(label)) return [0, label];
+    if (label.startsWith("HT-")) return [1, label];
+    if (isExternalSlot(label)) return [2, label === "External" ? "1" : label.slice("External-".length)];
+    return [3, label];
+}
+
+/** Compares two unit labels by `unitSortKey()`. */
+export function compareUnits(a, b) {
+    const [ra, la] = unitSortKey(a);
+    const [rb, lb] = unitSortKey(b);
+    return ra - rb || la.localeCompare(lb, "en", { numeric: true });
+}
+
+/**
+ * The slots grouped into one list per unit, the way the dashboard draws one
+ * table per unit, in the order of `compareUnits()`: A to E, the AMS HT units,
+ * then the holders, every single slot unit in a table of its own.
+ *
+ * Grouped by the unit of the label rather than counted off in fours. The AMS
+ * 3H of an H3C has nine slots, and cutting its list into fours drew it as
+ * three tables with the same name (issue #262). A unit with fewer slots in the
+ * list than it has, which is what a slot the server has not reported yet looks
+ * like, stays one table as well.
+ *
+ * @param {object[]} spools - the slots, each with its `amsId`
+ * @returns {object[][]} one list of slots per unit, in display order
+ */
+export function groupSlotsByUnit(spools) {
+    const units = new Map();
+    const singles = [];
+    for (const spool of spools || []) {
+        if (isSingleSlotLabel(spool?.amsId)) {
+            singles.push([spool]);
+            continue;
+        }
+        const unit = slotUnit(String(spool?.amsId ?? ""));
+        if (!units.has(unit)) units.set(unit, []);
+        units.get(unit).push(spool);
+    }
+    const unitOf = group => slotUnit(String(group[0]?.amsId ?? ""));
+    return [...units.values(), ...singles].sort((a, b) => compareUnits(unitOf(a), unitOf(b)));
 }
 
 /**

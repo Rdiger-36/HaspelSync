@@ -586,9 +586,10 @@ export function noteStorage(printer, print) {
  * @returns {boolean} whether the slot changed
  */
 export function noteActiveSlot(printer, print) {
-    const found = activeSlotFromReport(print, printer.activeNozzle ?? 0);
+    const found = activeSlotFromReport(print, printer.activeNozzle ?? 0, printer.activeSlotFromSnow);
     if (!found) return false;
     printer.activeNozzle = found.nozzle;
+    if (found.fromSnow) printer.activeSlotFromSnow = true;
     if (printer.activeSlot === found.slot) return false;
     printer.activeSlot = found.slot;
     return true;

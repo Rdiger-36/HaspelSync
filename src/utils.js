@@ -1,7 +1,7 @@
 import { materialFamily } from "../public/materials.js";
 // Imported rather than only re-exported: `convertAMSandSlot()` below reads them,
 // and a bare re-export does not bring a name into this module's scope.
-import { EXTERNAL_SPOOL_ID, EXTERNAL_SLOT, SECOND_EXTERNAL_SPOOL_ID, SECOND_EXTERNAL_SLOT, externalSlotLabel } from "../public/shared.js";
+import { EXTERNAL_SPOOL_ID, EXTERNAL_SLOT, SECOND_EXTERNAL_SPOOL_ID, SECOND_EXTERNAL_SLOT, externalSlotLabel, isExternalSlot, AMS_3H_UNIT_ID, AMS_3H_LETTER, AMS_3H_SLOTS } from "../public/shared.js";
 
 /** Resolves after the given number of milliseconds. */
 export function sleep(ms) {
@@ -53,6 +53,12 @@ export function formatInterval(ms) {
  * printer reports outside the AMS block altogether and which has no slot number
  * either, giving `External`; 254 is the second holder of a dual nozzle printer,
  * giving `External-2`, see `public/shared.js` for where that number comes from.
+ * The AMS 3H of an H3C is unit 32 with nine slots, giving `E1` to `E9`
+ * (issue #262). The letter is fixed to the unit id rather than to the order of
+ * the units, because extra AMS units hang off the first tool of an H3C as units
+ * 0 to 3 and keep `A` to `D`. A slot beyond the ninth is not a slot of that
+ * unit and yields `Z`. 247 to 253 are the further holders of the H3C, one per
+ * tool, see `externalSlotLabel()` in `public/shared.js`.
  * Anything outside those ranges yields `Z`, which marks a unit this service
  * does not know how to address.
  *
@@ -79,6 +85,10 @@ export function convertAMSandSlot(amsID, slotID) {
     const slot = slotID === null || slotID === "" || !Number.isFinite(number) ? "" : number + 1;
 
     if (amsID >= 0 && amsID <= 3) return letters[amsID] + slot;
+    if (amsID === AMS_3H_UNIT_ID) {
+        if (slot !== "" && slot > AMS_3H_SLOTS) return "Z";
+        return AMS_3H_LETTER + slot;
+    }
     if (amsID >= 128 && amsID <= 135) return `HT-${letters[amsID - 128]}`;
     return externalSlotLabel(amsID) ?? "Z";
 }
@@ -97,14 +107,21 @@ export function convertAMSandSlot(amsID, slotID) {
  * `snow` wins wherever it is present. Both decodings follow ha-bambulab, which
  * has seen the most hardware.
  *
+ * The H3C sends both, and its `tray_now` is the slot within its one unit 32:
+ * "2" while `snow` said 8194, unit 32 slot 2, which `tray_now` would have read
+ * as A3 (issue #262). So once a printer has named its slot through `snow`,
+ * `tray_now` is not read for it any more, which the caller tracks as
+ * `fromSnow` on the answer and hands back as `snowSeen`.
+ *
  * A report that carries neither, which is what a delta report mostly is, says
  * nothing: `undefined` rather than null, so the caller keeps what it had.
  *
  * @param {object} print - the `print` block of a report
  * @param {number} lastNozzle - the printing nozzle the last report named
- * @returns {{slot: string|null, nozzle: number}|undefined}
+ * @param {boolean} [snowSeen] - whether an earlier report of this printer carried `snow`
+ * @returns {{slot: string|null, nozzle: number, fromSnow: boolean}|undefined}
  */
-export function activeSlotFromReport(print, lastNozzle = 0) {
+export function activeSlotFromReport(print, lastNozzle = 0, snowSeen = false) {
     const extruder = print?.device?.extruder;
     const state = Number(extruder?.state);
     const nozzle = Number.isFinite(state) && extruder?.state != null ? (state >> 4) & 0xF : lastNozzle;
@@ -112,19 +129,36 @@ export function activeSlotFromReport(print, lastNozzle = 0) {
     if (Array.isArray(extruder?.info) && extruder.info.length) {
         const entry = extruder.info.find(info => Number(info?.id) === nozzle);
         const snow = Number(entry?.snow);
-        if (!entry || !Number.isFinite(snow)) return { slot: null, nozzle };
+        if (!entry || !Number.isFinite(snow)) return { slot: null, nozzle, fromSnow: true };
         const unit = snow >> 8;
         const slot = snow & 0xFF;
-        if (slot === 0xFF) return { slot: null, nozzle };
-        return { slot: convertAMSandSlot(unit, unit <= 3 ? slot & 0x3 : null), nozzle };
+        if (slot === 0xFF) return { slot: null, nozzle, fromSnow: true };
+        return { slot: snowSlotLabel(unit, slot), nozzle, fromSnow: true };
     }
 
-    if (print?.ams?.tray_now == null) return undefined;
+    if (snowSeen || print?.ams?.tray_now == null) return undefined;
     const trayNow = Number(print.ams.tray_now);
-    if (!Number.isFinite(trayNow) || trayNow === 255) return { slot: null, nozzle };
-    if (trayNow === 254) return { slot: convertAMSandSlot(EXTERNAL_SPOOL_ID, null), nozzle };
-    if (trayNow >= 128) return { slot: convertAMSandSlot(trayNow, null), nozzle };
-    return { slot: convertAMSandSlot(trayNow >> 2, trayNow & 0x3), nozzle };
+    if (!Number.isFinite(trayNow) || trayNow === 255) return { slot: null, nozzle, fromSnow: false };
+    if (trayNow === 254) return { slot: convertAMSandSlot(EXTERNAL_SPOOL_ID, null), nozzle, fromSnow: false };
+    if (trayNow >= 128) return { slot: convertAMSandSlot(trayNow, null), nozzle, fromSnow: false };
+    return { slot: convertAMSandSlot(trayNow >> 2, trayNow & 0x3), nozzle, fromSnow: false };
+}
+
+/**
+ * The label of the slot a `snow` value names, null where it names none.
+ *
+ * Only a unit with numbered slots passes its slot on: an AMS HT and a holder
+ * have one slot each and their label carries no number. The four slot units
+ * keep the mask they always had, the AMS 3H gets its slot as it is, because a
+ * mask to four would turn its ninth slot into its first.
+ */
+function snowSlotLabel(unit, slot) {
+    if (unit <= 3) return convertAMSandSlot(unit, slot & 0x3);
+    if (unit === AMS_3H_UNIT_ID) {
+        const label = convertAMSandSlot(unit, slot);
+        return label === "Z" ? null : label;
+    }
+    return convertAMSandSlot(unit, null);
 }
 
 /**
@@ -136,7 +170,7 @@ export function activeSlotFromReport(print, lastNozzle = 0) {
  * constant of its own. The label is the key an assignment is stored under, so
  * the two drifting apart orphans what is on disk.
  */
-export { EXTERNAL_SPOOL_ID, EXTERNAL_SLOT, SECOND_EXTERNAL_SPOOL_ID, SECOND_EXTERNAL_SLOT, externalSlotLabel };
+export { EXTERNAL_SPOOL_ID, EXTERNAL_SLOT, SECOND_EXTERNAL_SPOOL_ID, SECOND_EXTERNAL_SLOT, externalSlotLabel, isExternalSlot, AMS_3H_UNIT_ID, AMS_3H_LETTER, AMS_3H_SLOTS };
 
 /**
  * The colour set of an AMS slot as bare six digit lowercase hex, and the colour

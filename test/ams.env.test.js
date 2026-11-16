@@ -42,6 +42,8 @@ test("an AMS 2 Pro reports humidity, percentage, temperature and a dryer", () =>
     assert.equal(unit.temperature, 24.5);
     assert.deepEqual(unit.drying, {
         active: false,
+        status: null,
+        phase: null,
         remainingMinutes: null,
         targetTemp: null,
         durationHours: null,
@@ -58,6 +60,8 @@ test("a running drying cycle carries its target and the minutes left", () => {
 
     assert.deepEqual(unit.drying, {
         active: true,
+        status: null,
+        phase: null,
         remainingMinutes: 214,
         targetTemp: 55,
         durationHours: 8,
@@ -118,4 +122,30 @@ test("every unit keeps its own label", () => {
 test("a payload that is not a list yields nothing", () => {
     assert.deepEqual(extractAmsEnvironment(undefined), []);
     assert.deepEqual(extractAmsEnvironment(null), []);
+});
+
+test("the state of a drying cycle is read from the unit's info, as Bambu Studio reads it", () => {
+    // The AMS 2 Pro of the X1C report in test/fixtures/reports, the one unit
+    // there caught drying: info "142023", bits 4 to 7 are 2
+    const [drying] = extractAmsEnvironment([{ dry_time: 583, humidity: "4", humidity_raw: "9", id: "2", info: "142023", temp: "65.0" }]);
+    assert.equal(drying.drying.status, "drying");
+    assert.equal(drying.drying.active, true);
+
+    // Cooling down after the cycle, with the countdown at 0: still a cycle
+    const [cooling] = extractAmsEnvironment([{ ...AMS_2_PRO, dry_time: 0, info: "1033" }]);
+    assert.equal(cooling.drying.status, "cooling");
+    assert.equal(cooling.drying.active, true);
+
+    // At rest
+    const [idle] = extractAmsEnvironment([{ ...AMS_2_PRO, dry_time: 0, info: "1003" }]);
+    assert.equal(idle.drying.status, "off");
+    assert.equal(idle.drying.active, false);
+});
+
+test("a countdown the info calls off still counts, the bits then say nothing", () => {
+    // Studio reads the bits only on printers that dry from afar; a printer
+    // that leaves them at 0 while counting down keeps showing its cycle
+    const [unit] = extractAmsEnvironment([{ ...AMS_2_PRO, dry_time: 30, info: "1003" }]);
+    assert.equal(unit.drying.active, true);
+    assert.equal(unit.drying.status, null);
 });

@@ -165,6 +165,10 @@ function createRuntimePrinter(entry) {
         // noteActiveSlot() in mqtt.js.
         activeSlot: null,
         activeNozzle: 0,
+        // Whether a report of this printer named its slot through `snow`, after
+        // which `tray_now` is not read any more: an H3C sends both and its
+        // `tray_now` names the slot within its unit, not the unit.
+        activeSlotFromSnow: false,
         // What the last slice info fetch tried and found. See fetchSliceInfo().
         lastSliceFetch: null,
         // The slots the printer says the running print is taking its filaments

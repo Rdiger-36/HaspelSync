@@ -1,6 +1,6 @@
 import { settings, legacyMode } from "./settings.js";
 import { toClientSpool } from "./uispool.js";
-import { orNull, slotColors, filamentColors, convertAMSandSlot, EXTERNAL_SLOT, SECOND_EXTERNAL_SLOT } from "./utils.js";
+import { orNull, slotColors, filamentColors, convertAMSandSlot, isExternalSlot } from "./utils.js";
 import { consumptionKey, normColor } from "./gcode.js";
 
 /**
@@ -181,8 +181,14 @@ export { correctRemainInt } from "../public/shared.js";
  * placeholders on every tray, so those five say nothing about occupancy.
  * Every field the normalisation adds unconditionally has to be listed here, or
  * it alone makes an empty slot look occupied.
+ *
+ * `print_status` is the H3C's: its AMS 3H reports an empty slot as `id`,
+ * `state` 160 and `print_status` 0, and a loaded one carries the field too,
+ * 1 on the slot the print runs from (issue #262). It says whether the slot is
+ * printing, not whether it holds anything, and without it here all five empty
+ * slots of that report read as 3rd party spools nobody could identify.
  */
-const EMPTY_TRAY_KEYS = new Set(["id", "state", "remain", "cols", "tray_color", "tray_sub_brands", "tray_weight", "tray_uuid"]);
+const EMPTY_TRAY_KEYS = new Set(["id", "state", "print_status", "remain", "cols", "tray_color", "tray_sub_brands", "tray_weight", "tray_uuid"]);
 
 /**
  * Whether the AMS reports something physically sitting in the slot.
@@ -938,7 +944,7 @@ export function matchConsumption(entries, candidates) {
 export function holderSwapIndices(entries) {
     const byHolder = {};
     for (const entry of entries) {
-        if (!entry.amsIdFromPrinter || (entry.amsId !== EXTERNAL_SLOT && entry.amsId !== SECOND_EXTERNAL_SLOT)) continue;
+        if (!entry.amsIdFromPrinter || !isExternalSlot(entry.amsId)) continue;
         (byHolder[entry.amsId] ||= new Set()).add(entry.index);
     }
     return new Set(Object.values(byHolder).filter(indices => indices.size > 1).flatMap(indices => [...indices]));
@@ -986,7 +992,11 @@ function amsNumber(value) {
  *     the level is shown for both and the dashboard says where it comes from.
  *   - A unit that reports none of it is left out entirely, so the dashboard
  *     shows no empty header. The external spool holder is the case that
- *     reaches this.
+ *     reaches this. A unit the printer named in `get_version` stays, without
+ *     readings: the AMS 3H of an H3C reports its humidity and temperature per
+ *     drying zone in `zone_info` and nothing for the unit (issue #262). Its
+ *     entry carries the zones in `zones`, see `amsZones()`, and its drying
+ *     state comes from the zone with the heater.
  *
  * `humidity` is a level from 1 (driest) to 5. An AMS HT was observed reporting
  * level "0" alongside a valid 24% reading, so 0 is treated as "no level yet"
@@ -1004,11 +1014,13 @@ export function extractAmsEnvironment(amsArray, models = {}) {
     if (!Array.isArray(amsArray)) return [];
 
     return amsArray.map(unit => {
-        const level = amsNumber(unit?.humidity);
-        const percent = amsNumber(unit?.humidity_raw);
-        const temperature = amsNumber(unit?.temp);
-        const dryTime = amsNumber(unit?.dry_time);
-        const setting = unit?.dry_setting || null;
+        const zones = amsZones(unit);
+        // A unit with drying zones reports its dryer in the zone that has one
+        const dryerZone = zones ? unit.zone_info.find(zone => isDryerZone(zone)) ?? null : null;
+        const dryingSource = zones ? dryerZone ?? {} : unit;
+        const { humidity, humidityPercent, temperature } = amsReadings(unit);
+        const dryTime = amsNumber(dryingSource?.dry_time);
+        const setting = dryingSource?.dry_setting || null;
 
         const amsId = convertAMSandSlot(unit?.id, null);
         const model = models?.[amsId]?.model ?? null;
@@ -1023,15 +1035,29 @@ export function extractAmsEnvironment(amsArray, models = {}) {
         const canDry = modelCanDry(model) ?? (dryTime !== null || !!setting);
         const settingTemp = amsNumber(setting?.dry_temperature);
         const settingDuration = amsNumber(setting?.dry_duration);
+        // What the cycle is doing, from the zone with the heater or, on a unit
+        // without zones, from the unit's own info. A unit that reports no info
+        // has the countdown alone, and a running one is all "active" can mean.
+        const read = canDry ? dryState(dryingSource) : null;
+        // Studio reads the bits only on a printer that can start a cycle from
+        // afar, which nothing in a report says. Where they read "off" while
+        // the countdown runs they say nothing, and the countdown decides as it
+        // always did, so no printer loses a cycle it used to show.
+        const state = read && !(read.status === "off" && (dryTime ?? 0) > 0) ? read : null;
 
         return {
             amsId,
             model,
-            humidity: level !== null && level >= 1 && level <= 5 ? level : null,
-            humidityPercent: percent !== null && percent > 0 && percent <= 100 ? percent : null,
-            temperature: temperature !== null && temperature > 0 ? temperature : null,
+            humidity,
+            humidityPercent,
+            temperature,
+            ...(zones ? { zones } : {}),
             drying: canDry ? {
-                active: (dryTime ?? 0) > 0,
+                active: state ? state.status !== "off" : (dryTime ?? 0) > 0,
+                status: state?.status ?? null,
+                phase: state?.phase ?? null,
+                // Only a unit with drying zones dries some of its slots
+                ...(zones ? { slots: zones.find(zone => zone.dryer)?.slots ?? [] } : {}),
                 remainingMinutes: dryTime !== null && dryTime > 0 ? dryTime : null,
                 // Both are -1 while nothing is set, which is not a temperature
                 // and not a duration.
@@ -1041,6 +1067,8 @@ export function extractAmsEnvironment(amsArray, models = {}) {
             } : null,
         };
     }).filter(entry =>
+        entry.model !== null ||
+        entry.zones?.length > 0 ||
         entry.humidity !== null ||
         entry.humidityPercent !== null ||
         entry.temperature !== null ||
@@ -1049,15 +1077,125 @@ export function extractAmsEnvironment(amsArray, models = {}) {
 }
 
 /**
- * Whether a unit of this model has a dryer: true for an AMS 2 Pro and an AMS
- * HT, false for the original AMS and the AMS Lite, null while the model is not
+ * Humidity and temperature as a unit or a drying zone reports them.
+ *
+ * `humidity` is a level from 1 (driest) to 5. An AMS HT was observed reporting
+ * level "0" alongside a valid 24% reading, so 0 is treated as "no level yet".
+ * A temperature of 0 is what a unit without a sensor sends.
+ *
+ * @param {object} source - a unit of `print.ams.ams` or an entry of its `zone_info`
+ * @returns {{humidity: number|null, humidityPercent: number|null, temperature: number|null}}
+ */
+function amsReadings(source) {
+    const level = amsNumber(source?.humidity);
+    const percent = amsNumber(source?.humidity_raw);
+    const temperature = amsNumber(source?.temp);
+    return {
+        humidity: level !== null && level >= 1 && level <= 5 ? level : null,
+        humidityPercent: percent !== null && percent > 0 && percent <= 100 ? percent : null,
+        temperature: temperature !== null && temperature > 0 ? temperature : null,
+    };
+}
+
+/**
+ * Whether a drying zone is the one with the heater.
+ *
+ * Bambu Studio's rule, `DevAmsZone::SupportDrying()` in
+ * `src/slic3r/GUI/DeviceCore/DevFilaSystem.h`: a zone of two slots dries, any
+ * other does not. The AMS 3H of an H3C dries in slots 6 and 8 and reports them
+ * as zone 0 with `zone_slots` [5, 7] (issue #262), which ha-bambulab keys on
+ * instead; the slot count is what the vendor's own client reads, and it does
+ * not depend on the order the firmware numbers its zones in.
+ */
+function isDryerZone(zone) {
+    return Array.isArray(zone?.zone_slots) && zone.zone_slots.length === 2;
+}
+
+/**
+ * The drying states a zone reports, by the number in bits 4 to 7 of its
+ * `info`, as Bambu Studio's `DevAms::DryStatus` names them.
+ */
+const DRY_STATUSES = ["off", "checking", "drying", "cooling", "stopping", "error", "heatOutOfControl", "testing"];
+
+/** The two phases of a drying cycle, bits 22 to 23 of the same field. */
+const DRY_PHASES = [null, "heating", "dehumidify"];
+
+/**
+ * `count` bits of a hex string from bit `start`, the way Bambu Studio's
+ * `DevUtil::get_flag_bits()` reads the `info` fields. Done with arithmetic
+ * rather than shifts: the value is wider than the 32 bits a JavaScript shift
+ * works on ("240402026" is 36 bits).
+ *
+ * @returns {number|null} the bits, null where the field is no hex number
+ */
+function flagBits(hex, start, count) {
+    if (typeof hex !== "string" || !/^[0-9a-fA-F]+$/.test(hex)) return null;
+    const value = Number.parseInt(hex, 16);
+    if (!Number.isSafeInteger(value)) return null;
+    return Math.floor(value / 2 ** start) % 2 ** count;
+}
+
+/**
+ * What an `info` field says about a drying cycle, null where there is none.
+ *
+ * Read the way Bambu Studio reads it (`DevFilaSystemParser`): the state in
+ * bits 4 to 7, the phase in bits 22 to 23, from a zone of the AMS 3H and from
+ * the unit itself on an AMS 2 Pro or an AMS HT. Undocumented by Bambu Lab, so
+ * the vendor's client is the reference, and the fixtures agree with it: the
+ * one AMS 2 Pro reporting a running cycle (`x1c-multi-ams`, unit 2, 583
+ * minutes left) has "142023", state 2, drying, and every unit at rest reads 0.
+ * The callers ask only for a unit that can dry; Studio also reads the bits
+ * only where drying is something the unit does.
+ *
+ * @param {object} source - an entry of `zone_info`, or a unit of `print.ams.ams`
+ * @returns {{status: string, phase: string|null}|null}
+ */
+function dryState(source) {
+    const status = flagBits(source?.info, 4, 4);
+    if (status === null) return null;
+    return {
+        status: DRY_STATUSES[status] ?? "unknown",
+        phase: DRY_PHASES[flagBits(source.info, 22, 2)] ?? null,
+    };
+}
+
+/**
+ * The drying zones of a unit, null for a unit that reports none.
+ *
+ * The AMS 3H reports humidity and temperature per zone rather than for the
+ * unit: the seven ordinary slots share one compartment and the two drying
+ * slots have their own. Neither stands for the whole unit, so the unit's own
+ * readings stay empty and the zones carry them, each with the slots it holds,
+ * the zone with the heater last, the way Bambu Studio draws them.
+ *
+ * @param {object} unit - an entry of `print.ams.ams`
+ * @returns {object[]|null} `{ slots, dryer, humidity, humidityPercent, temperature }` per zone
+ */
+function amsZones(unit) {
+    if (!Array.isArray(unit?.zone_info) || !unit.zone_info.length) return null;
+
+    return unit.zone_info
+        .filter(zone => zone && typeof zone === "object")
+        .map(zone => ({
+            slots: (Array.isArray(zone.zone_slots) ? zone.zone_slots : [])
+                .map(slot => convertAMSandSlot(unit.id, slot))
+                .filter(label => label !== "Z"),
+            dryer: isDryerZone(zone),
+            ...amsReadings(zone),
+        }))
+        .sort((a, b) => Number(a.dryer) - Number(b.dryer));
+}
+
+/**
+ * Whether a unit of this model has a dryer: true for an AMS 2 Pro, an AMS HT
+ * and the AMS 3H, which dries in two of its slots, false for the original AMS and the AMS Lite, null while the model is not
  * known, which leaves the decision to the report.
  *
  * @param {string|null} model - as `amsModelsFromVersion()` names it
  * @returns {boolean|null}
  */
 export function modelCanDry(model) {
-    if (model === "AMS 2 Pro" || model === "AMS HT") return true;
+    if (model === "AMS 2 Pro" || model === "AMS HT" || model === "AMS 3H") return true;
     if (model === "AMS" || model === "AMS Lite") return false;
     return null;
 }
@@ -1081,6 +1219,9 @@ export function modelCanDry(model) {
  *   - `ams_f1/`  the AMS Lite, `hw_ver` "AMS_F102" in ha-bambulab's sample
  *   - `n3f/`     the AMS 2 Pro
  *   - `n3s/`     the AMS HT, with the unit id 128 and up
+ *   - `n10a`     the AMS 3H of an H3C, unit 32, `product_name` "AMS 3H" in
+ *                ha-bambulab's H3C payload. This one carries no number in its
+ *                name: the unit id is the module's own `id` field
  *
  * A module with another prefix (`ota`, `mc`, `th`, `esp32` and so on) is the
  * printer itself and is left out. A unit id the labels cannot name is left out
@@ -1095,16 +1236,18 @@ export function amsModelsFromVersion(modules) {
         ["ams/", "AMS"],
         ["n3f/", "AMS 2 Pro"],
         ["n3s/", "AMS HT"],
+        ["n10a", "AMS 3H"],
     ];
     const models = {};
     if (!Array.isArray(modules)) return models;
 
     for (const module of modules) {
         const name = typeof module?.name === "string" ? module.name : "";
-        const family = FAMILIES.find(([prefix]) => name.startsWith(prefix));
+        const family = FAMILIES.find(([prefix]) => prefix.endsWith("/") ? name.startsWith(prefix) : (name === prefix || name.startsWith(`${prefix}/`)));
         if (!family) continue;
 
-        const id = Number(name.slice(family[0].length));
+        const suffix = name.slice(family[0].length).replace(/^\//, "");
+        const id = Number(suffix === "" ? module.id ?? NaN : suffix);
         if (!Number.isInteger(id)) continue;
         const amsId = convertAMSandSlot(id, null);
         if (amsId === "Z") continue;

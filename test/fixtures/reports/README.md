@@ -18,6 +18,12 @@ Serial numbers, RFID tags and the job name are masked in it, and next to the
 `pushall` it carries a `deltas` list with one of the delta reports the printer
 sends between two full ones, which is what that issue was about.
 
+`h3c.json` is not from ha-bambulab either: it is the first report of the raw
+MQTT trace a user attached to issue #262, captured with 1.3.7 on 2026-11-16
+while a print was running. All 86 reports of that trace are full ones with
+identical AMS data, so one of them stands for all. Serial numbers, RFID tags,
+the last octet of the printer's address and the job name are masked in it.
+
 Nothing else in them is edited. The value of a fixture is that it is what the
 printer really sent, and most of these printers are not on anybody's desk
 here: they answer questions the P2S this project is developed against cannot.
@@ -27,6 +33,7 @@ here: they answer questions the P2S this project is developed against cannot.
 | `a1.json` | A1 with AMS Lite | No `humidity_raw`, `temp` is `"0.0"`, the holder is a single `vt_tray` with id 254, no `print.mapping`. User presets on two slots (`tray_info_idx` `P8d19ba6`) |
 | `a2l.json` | A2L | A four slot unit reported as id 16 with `ams_exist_bits` `"1000"`, a 32 entry `print.mapping` of unused markers, the holder as `vir_slot` 255 |
 | `h2c.json` | H2C, dual nozzle | Two holders, `vir_slot` 254 and 255, `stg_cur` -1 on a FAILED job, `print.mapping` with unused markers before the used slots |
+| `h3c.json` | H3C, nine tool changer with an AMS 3H, from issue #262 | The AMS 3H as one unit with id 32 and nine trays, four of them loaded with Bambu Lab spools, drying zones in `zone_info` instead of unit readings, nine holders as `vir_slot` 247 to 255, all empty, `print.mapping` and `device.extruder.info[0].snow` both 8194 (unit 32, slot 2) while RUNNING |
 | `h2d.json` | H2D, dual nozzle | Two AMS units, two holders, `print.mapping` `[259]` naming B4 while RUNNING |
 | `h2d-external-active.json` | H2D, dual nozzle | Four AMS plus two AMS HT (128 and 129), both holders loaded, `print.mapping` `[65280]` naming the holder |
 | `h2d-pro.json` | H2D Pro | One AMS plus one AMS HT, two holders, an empty `print.mapping` |

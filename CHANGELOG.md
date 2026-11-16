@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - Merge, Create and Create with filament on a slot that has nothing to write from answer with a message saying so, in the language of the Web UI, instead of "Cannot read properties of null". That happens on a page that is no longer current, and it happened on every merge on an H3C, where all slots shared one label (issue #262). Two slots under one label are refused rather than written to whichever comes first. Over the API these answers are a 409 with a `code`
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.2
    - Fixes:
       - A print of a file that was changed and sent again under the same name is weighed from the new file. The printer can keep both copies, one in its cache and one on the storage root, and the service read whichever name it tried first, which could be the old file. It now asks the printer when each copy was written and reads the newest (issue #252)

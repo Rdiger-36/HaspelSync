@@ -904,6 +904,7 @@ export function buildOpenApiDocument() {
         responses: {
             200: json("Written", t.ref("Ok")),
             404: failure("No such printer or slot"),
+            409: failure("The slot lacks what the action writes from (`nothingToMerge`, `noMatchingFilament`, `noCatalogueFilament`), or two slots share the label (`slotAmbiguous`)"),
             500: failure("The write threw; the message is the error's"),
             502: failure("Spoolman refused the write"),
         },

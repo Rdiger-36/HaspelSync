@@ -128,6 +128,12 @@ function liveProgress(printer, state) {
  * Looks up one cached UI spool of a printer, answering with a 404 and returning
  * null when the slot is not among them.
  *
+ * Two slots under one label are answered with 409 rather than with the first
+ * of them. A label is meant to name one slot, and where a printer's unit is
+ * not known yet every slot of it used to be "Z": the first match was then an
+ * arbitrary slot, an empty one in issue #262, and whatever the request wrote
+ * landed there.
+ *
  * @param {object} printer - the runtime printer
  * @param {string} amsId - the slot label
  * @param {object} res - the Express response, used for the 404
@@ -135,9 +141,13 @@ function liveProgress(printer, state) {
  * @returns {object|null} the cached UI spool, or null
  */
 function resolveUiSpool(printer, amsId, res, missing = "Slot not found") {
-    const uiSpool = (printer.spoolData || []).find(s => s.amsId === amsId);
-    if (!uiSpool) { res.status(404).json({ ok: false, error: missing }); return null; }
-    return uiSpool;
+    const matches = (printer.spoolData || []).filter(s => s.amsId === amsId);
+    if (!matches.length) { res.status(404).json({ ok: false, error: missing, code: "slotNotFound" }); return null; }
+    if (matches.length > 1) {
+        res.status(409).json({ ok: false, error: `${matches.length} slots of this printer are labelled ${amsId}, so the request cannot tell which one it means`, code: "slotAmbiguous", params: { slot: amsId, count: matches.length } });
+        return null;
+    }
+    return matches[0];
 }
 
 /**
@@ -364,6 +374,11 @@ export function registerRoutes(app, printers) {
             if (!spoolData) return;
             try {
                 const result = await run(spoolData);
+                // A code says the slot lacks what the action writes from, which
+                // is a request that does not fit the slot, not Spoolman refusing
+                if (result?.ok === false && result.code) {
+                    return res.status(409).json({ ok: false, error: result.error, code: result.code });
+                }
                 if (result?.ok === false) {
                     return res.status(502).json({ ok: false, error: result.error || `${what} failed` });
                 }

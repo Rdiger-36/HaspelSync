@@ -850,8 +850,9 @@ caption.ams-env .ams-env-drying-mark {
 /* The head is the control, as on a unit: the whole line folds the rows */
 .dryer-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   padding: 8px 12px 8px 16px;
   background: var(--head-bg);
   cursor: pointer;
@@ -859,9 +860,10 @@ caption.ams-env .ams-env-drying-mark {
 }
 
 .dryer-card-title { font-weight: 600; }
-.dryer-card-count { color: var(--text-muted); }
-.dryer-card-summary { display: none; }
-.dryer-card-summary > span + span { margin-left: 14px; }
+.dryer-card-count { color: var(--text-muted); white-space: nowrap; }
+/* Each count is one piece: the line breaks between them, never inside */
+.dryer-card-summary { display: none; flex-wrap: wrap; gap: 2px 14px; }
+.dryer-card-summary > span { white-space: nowrap; }
 .dryer-summary-warm { color: var(--warn); }
 .dryer-summary-cool { color: var(--accent-text); }
 .dryer-summary-error { color: var(--bad); }
@@ -869,7 +871,7 @@ caption.ams-env .ams-env-drying-mark {
 .dryer-card-head:hover .ams-toggle { color: var(--text); }
 
 .dryer-card.is-collapsed .dryer-rows { display: none; }
-.dryer-card.is-collapsed .dryer-card-summary { display: inline; font-weight: 600; }
+.dryer-card.is-collapsed .dryer-card-summary { display: inline-flex; font-weight: 600; }
 .dryer-card.is-collapsed .ams-toggle svg { transform: rotate(-90deg); }
 
 /* One grid for all rows, so the columns line up from row to row. No column
@@ -3250,6 +3252,11 @@ a.menu-foot-update:hover { text-decoration: underline; }
   /* The drying cycle carries a target and a countdown, which is more than fits
      next to the humidity on a phone. Its own line, under the readings it
      belongs to. */
+  /* On a phone the counts of a folded card take a line of their own under
+     the title, which keeps the chevron on the first line at the right. The
+     chevron itself is ordered 10 on a phone, see `.ams-toggle` below. */
+  .dryer-card-summary { order: 20; flex-basis: 100%; }
+
   /* On a phone a dryer row stacks: the unit and its state on one line, the
      rest below, and the bar across the full width. */
   .dryer-rows { display: block; }
@@ -3265,6 +3272,9 @@ a.menu-foot-update:hover { text-decoration: underline; }
   .dryer-row > span,
   .dryer-row > span:first-child,
   .dryer-row > span:last-child { padding: 0; border-top: 0; }
+  /* A long state ("Heizung lässt sich nicht stoppen") wraps inside its own
+     column, right aligned, rather than pushing past the card's edge */
+  .dryer-state { white-space: normal; text-align: right; justify-content: flex-end; }
   .dryer-progress { grid-column: 1 / -1; }
   .dryer-progress:empty, .dryer-details:empty, .dryer-left:empty { display: none; }
 

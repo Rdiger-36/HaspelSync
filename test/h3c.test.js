@@ -178,7 +178,18 @@ test("the dashboard draws the AMS 3H as one table of nine", () => {
     const labels = ["A1", "A2", "A3", "A4", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "External", "External-3", "HT-A"];
     const groups = groupSlotsByUnit(labels.map(amsId => ({ amsId })));
     assert.deepEqual(groups.map(group => group.map(slot => slot.amsId).join(" ")),
-        ["A1 A2 A3 A4", "E1 E2 E3 E4 E5 E6 E7 E8 E9", "External", "External-3", "HT-A"]);
+        ["A1 A2 A3 A4", "E1 E2 E3 E4 E5 E6 E7 E8 E9", "HT-A", "External", "External-3"]);
     assert.equal(isSingleSlotLabel("External-9"), true);
     assert.equal(isSingleSlotLabel("E9"), false);
+});
+
+test("the units stand A to E, then the AMS HT units, then the holders, whatever order the report has", () => {
+    // The order a report can bring them in: the AMS 3H first, the HT units
+    // mixed, the holders after the AMS units
+    const labels = ["E1", "E2", "HT-B", "A1", "External-3", "HT-A", "B1", "External", "C1", "External-2", "D1"];
+    const groups = groupSlotsByUnit(labels.map(amsId => ({ amsId })));
+    assert.deepEqual(groups.map(group => slotUnit(group[0].amsId)),
+        ["A", "B", "C", "D", "E", "HT-A", "HT-B", "External", "External-2", "External-3"]);
+    // Within a unit the slots keep their order
+    assert.deepEqual(groups[4].map(slot => slot.amsId), ["E1", "E2"]);
 });

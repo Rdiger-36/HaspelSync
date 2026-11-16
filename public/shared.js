@@ -434,9 +434,36 @@ export function isSingleSlotLabel(amsId) {
 }
 
 /**
+ * Where a unit stands on the dashboard: the units with numbered slots by
+ * letter (`A` to `D`, then `E` for the AMS 3H), then the AMS HT units by
+ * letter, then the holders by number, then anything else by name.
+ *
+ * Sorted rather than taken in the order of the report: the printer lists its
+ * units in its own order, which puts an AMS 3H, unit 32, wherever its bus
+ * places it, and the holders arrive after every AMS.
+ *
+ * @param {string} unit - a unit label as `slotUnit()` gives it
+ * @returns {Array} a sort key, compared element by element
+ */
+export function unitSortKey(unit) {
+    const label = String(unit ?? "");
+    if (/^[A-Z]$/.test(label)) return [0, label];
+    if (label.startsWith("HT-")) return [1, label];
+    if (isExternalSlot(label)) return [2, label === "External" ? "1" : label.slice("External-".length)];
+    return [3, label];
+}
+
+/** Compares two unit labels by `unitSortKey()`. */
+export function compareUnits(a, b) {
+    const [ra, la] = unitSortKey(a);
+    const [rb, lb] = unitSortKey(b);
+    return ra - rb || la.localeCompare(lb, "en", { numeric: true });
+}
+
+/**
  * The slots grouped into one list per unit, the way the dashboard draws one
- * table per unit: the units with numbered slots first, in the order their
- * first slot arrives, then every single slot unit on its own.
+ * table per unit, in the order of `compareUnits()`: A to E, the AMS HT units,
+ * then the holders, every single slot unit in a table of its own.
  *
  * Grouped by the unit of the label rather than counted off in fours. The AMS
  * 3H of an H3C has nine slots, and cutting its list into fours drew it as
@@ -459,7 +486,8 @@ export function groupSlotsByUnit(spools) {
         if (!units.has(unit)) units.set(unit, []);
         units.get(unit).push(spool);
     }
-    return [...units.values(), ...singles];
+    const unitOf = group => slotUnit(String(group[0]?.amsId ?? ""));
+    return [...units.values(), ...singles].sort((a, b) => compareUnits(unitOf(a), unitOf(b)));
 }
 
 /**

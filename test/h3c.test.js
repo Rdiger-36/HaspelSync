@@ -105,14 +105,40 @@ test("the AMS 3H is named from its n10a module, whose id is a field", () => {
     assert.deepEqual(amsModelsFromVersion([{ name: "n10ab", id: 32, sw_ver: "1" }]), {});
 });
 
-test("the AMS 3H keeps its name in the readings, although it reports none for the unit", () => {
-    const env = extractAmsEnvironment(print.ams.ams, { E: { model: "AMS 3H" } });
-    assert.equal(env.length, 1);
-    assert.equal(env[0].amsId, "E");
-    assert.equal(env[0].model, "AMS 3H");
-    assert.equal(env[0].humidityPercent, null);
-    // Before get_version has answered there is nothing to show
-    assert.deepEqual(extractAmsEnvironment(print.ams.ams), []);
+test("the AMS 3H reports its readings per drying zone, the heated one last", () => {
+    const [env] = extractAmsEnvironment(print.ams.ams, { E: { model: "AMS 3H" } });
+    assert.equal(env.amsId, "E");
+    assert.equal(env.model, "AMS 3H");
+    // No zone stands for the whole unit
+    assert.equal(env.humidityPercent, null);
+    assert.equal(env.temperature, null);
+    // As Bambu Studio showed it for this printer: slots 6 and 8 apart, with
+    // their own humidity, the other seven together
+    assert.deepEqual(env.zones, [
+        { slots: ["E1", "E2", "E3", "E4", "E5", "E7", "E9"], dryer: false, humidity: 2, humidityPercent: 33, temperature: 33.5 },
+        { slots: ["E6", "E8"], dryer: true, humidity: 3, humidityPercent: 27, temperature: 31.2 },
+    ]);
+    // It can dry, and is not drying
+    assert.equal(env.drying.active, false);
+});
+
+test("the drying state of the AMS 3H comes from the zone with the heater", () => {
+    // The shape ha-bambulab's H3C test drives: a timer and a setting on zone 0
+    const unit = {
+        id: "32",
+        zone_info: [
+            { zone_id: 0, zone_slots: [5, 7], dry_time: 719, dry_setting: { dry_duration: 12, dry_filament: "PLA", dry_temperature: 55 } },
+            { zone_id: 1, zone_slots: [0, 1, 2, 3, 4, 6, 8], dry_time: 719 },
+        ],
+    };
+    const [env] = extractAmsEnvironment([unit], { E: { model: "AMS 3H" } });
+    assert.deepEqual(env.drying, { active: true, remainingMinutes: 719, targetTemp: 55, durationHours: 12, filament: "PLA" });
+});
+
+test("the AMS 3H is listed with its zones before get_version has named it", () => {
+    const [env] = extractAmsEnvironment(print.ams.ams);
+    assert.equal(env.model, null);
+    assert.equal(env.zones.length, 2);
 });
 
 test("the dashboard draws the AMS 3H as one table of nine", () => {

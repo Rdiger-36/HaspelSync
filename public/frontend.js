@@ -603,24 +603,48 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
     }
 
+    // Humidity and temperature of a unit or of one of its drying zones, as
+    // spans. The original AMS has no percentage, only the five step level the
+    // printer shows as a bar, spelled out rather than drawn because there is
+    // no percentage to put next to it. Inside a zone the zone's own title
+    // says where the reading was taken, so the spans carry none of theirs.
+    function readingSpans(env, titled = true) {
+        const tip = key => titled ? ` title="${escapeHtml(t(key))}"` : "";
+        const parts = [];
+        if (env.humidityPercent !== null && env.humidityPercent !== undefined) {
+            const level = env.humidity ? ` (${t("dashboard.env.level", { level: env.humidity })})` : "";
+            parts.push(`<span${tip(level ? "dashboard.env.humidityTitleLevel" : "dashboard.env.humidityTitle")}>💧 ${env.humidityPercent} %${escapeHtml(level)}</span>`);
+        } else if (env.humidity !== null && env.humidity !== undefined) {
+            parts.push(`<span${tip("dashboard.env.levelOnlyTitle")}>💧 ${escapeHtml(t("dashboard.env.level", { level: env.humidity }))}</span>`);
+        }
+        if (env.temperature !== null && env.temperature !== undefined) {
+            parts.push(`<span${tip("dashboard.env.temperatureTitle")}>🌡️ ${env.temperature} °C</span>`);
+        }
+        return parts;
+    }
+
     // The readings of one unit, as the spans of its header.
+    //
+    // A unit with drying zones, the AMS 3H of an H3C, has no reading of its
+    // own: the server sends one per zone, each with the slots it holds. The
+    // seven ordinary slots read like any unit, the two drying slots follow
+    // with their slots named, the way Bambu Studio draws them apart.
     function amsEnvReadingsHtml(unitKey) {
         const env = amsEnvByUnit[unitKey];
         if (!env) return "";
 
         const parts = [];
-        if (env.humidityPercent !== null && env.humidityPercent !== undefined) {
-            const level = env.humidity ? ` (${t("dashboard.env.level", { level: env.humidity })})` : "";
-            const title = t(level ? "dashboard.env.humidityTitleLevel" : "dashboard.env.humidityTitle");
-            parts.push(`<span title="${escapeHtml(title)}">💧 ${env.humidityPercent} %${escapeHtml(level)}</span>`);
-        } else if (env.humidity !== null && env.humidity !== undefined) {
-            // The original AMS has no percentage, only the five step level the
-            // printer shows as a bar. Spelled out rather than drawn, because
-            // there is no percentage to put next to it.
-            parts.push(`<span title="${escapeHtml(t("dashboard.env.levelOnlyTitle"))}">💧 ${escapeHtml(t("dashboard.env.level", { level: env.humidity }))}</span>`);
-        }
-        if (env.temperature !== null && env.temperature !== undefined) {
-            parts.push(`<span title="${escapeHtml(t("dashboard.env.temperatureTitle"))}">🌡️ ${env.temperature} °C</span>`);
+        if (Array.isArray(env.zones) && env.zones.length) {
+            for (const zone of env.zones) {
+                const readings = readingSpans(zone, false);
+                if (!readings.length) continue;
+                const slots = (zone.slots || []).join(", ");
+                const title = t(zone.dryer ? "dashboard.env.dryerZoneTitle" : "dashboard.env.zoneTitle", { slots });
+                const name = zone.dryer ? `<span class="ams-env-zone-slots">${escapeHtml(slots)}</span>` : "";
+                parts.push(`<span class="ams-env-zone" title="${escapeHtml(title)}">${name}${readings.join("")}</span>`);
+            }
+        } else {
+            parts.push(...readingSpans(env));
         }
         if (env.drying?.active) {
             const target = env.drying.targetTemp ? ` ${t("dashboard.env.dryingAt", { temp: env.drying.targetTemp })}` : "";

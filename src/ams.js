@@ -994,8 +994,9 @@ function amsNumber(value) {
  *     shows no empty header. The external spool holder is the case that
  *     reaches this. A unit the printer named in `get_version` stays, without
  *     readings: the AMS 3H of an H3C reports its humidity and temperature per
- *     drying zone in `zone_info` and nothing for the unit (issue #262), and
- *     its name is what the dashboard header needs from here.
+ *     drying zone in `zone_info` and nothing for the unit (issue #262). Its
+ *     entry carries the zones in `zones`, see `amsZones()`, and its drying
+ *     state comes from the zone with the heater.
  *
  * `humidity` is a level from 1 (driest) to 5. An AMS HT was observed reporting
  * level "0" alongside a valid 24% reading, so 0 is treated as "no level yet"
@@ -1013,11 +1014,13 @@ export function extractAmsEnvironment(amsArray, models = {}) {
     if (!Array.isArray(amsArray)) return [];
 
     return amsArray.map(unit => {
-        const level = amsNumber(unit?.humidity);
-        const percent = amsNumber(unit?.humidity_raw);
-        const temperature = amsNumber(unit?.temp);
-        const dryTime = amsNumber(unit?.dry_time);
-        const setting = unit?.dry_setting || null;
+        const zones = amsZones(unit);
+        // A unit with drying zones reports its dryer in the zone that has one
+        const dryerZone = zones ? unit.zone_info.find(zone => isDryerZone(zone)) ?? null : null;
+        const dryingSource = zones ? dryerZone ?? {} : unit;
+        const { humidity, humidityPercent, temperature } = amsReadings(unit);
+        const dryTime = amsNumber(dryingSource?.dry_time);
+        const setting = dryingSource?.dry_setting || null;
 
         const amsId = convertAMSandSlot(unit?.id, null);
         const model = models?.[amsId]?.model ?? null;
@@ -1036,9 +1039,10 @@ export function extractAmsEnvironment(amsArray, models = {}) {
         return {
             amsId,
             model,
-            humidity: level !== null && level >= 1 && level <= 5 ? level : null,
-            humidityPercent: percent !== null && percent > 0 && percent <= 100 ? percent : null,
-            temperature: temperature !== null && temperature > 0 ? temperature : null,
+            humidity,
+            humidityPercent,
+            temperature,
+            ...(zones ? { zones } : {}),
             drying: canDry ? {
                 active: (dryTime ?? 0) > 0,
                 remainingMinutes: dryTime !== null && dryTime > 0 ? dryTime : null,
@@ -1051,6 +1055,7 @@ export function extractAmsEnvironment(amsArray, models = {}) {
         };
     }).filter(entry =>
         entry.model !== null ||
+        entry.zones?.length > 0 ||
         entry.humidity !== null ||
         entry.humidityPercent !== null ||
         entry.temperature !== null ||
@@ -1059,15 +1064,78 @@ export function extractAmsEnvironment(amsArray, models = {}) {
 }
 
 /**
- * Whether a unit of this model has a dryer: true for an AMS 2 Pro and an AMS
- * HT, false for the original AMS and the AMS Lite, null while the model is not
+ * Humidity and temperature as a unit or a drying zone reports them.
+ *
+ * `humidity` is a level from 1 (driest) to 5. An AMS HT was observed reporting
+ * level "0" alongside a valid 24% reading, so 0 is treated as "no level yet".
+ * A temperature of 0 is what a unit without a sensor sends.
+ *
+ * @param {object} source - a unit of `print.ams.ams` or an entry of its `zone_info`
+ * @returns {{humidity: number|null, humidityPercent: number|null, temperature: number|null}}
+ */
+function amsReadings(source) {
+    const level = amsNumber(source?.humidity);
+    const percent = amsNumber(source?.humidity_raw);
+    const temperature = amsNumber(source?.temp);
+    return {
+        humidity: level !== null && level >= 1 && level <= 5 ? level : null,
+        humidityPercent: percent !== null && percent > 0 && percent <= 100 ? percent : null,
+        temperature: temperature !== null && temperature > 0 ? temperature : null,
+    };
+}
+
+/**
+ * Whether a drying zone is the one with the heater.
+ *
+ * The AMS 3H of an H3C dries in two of its nine slots, 6 and 8, and reports
+ * them as zone 0 with `zone_slots` [5, 7] (issue #262). Bambu Studio draws that
+ * zone apart, with its own humidity and its drying state, and ha-bambulab reads
+ * the drying timer and setting from zone 0 as well, observing that zone 1
+ * repeats the timer. `zone_dry_info` read "1" on zone 0 and "0" on zone 1 in
+ * the one trace there is, which may say the same thing, but nothing confirms
+ * what the field means, so the zone id decides.
+ */
+function isDryerZone(zone) {
+    return Number(zone?.zone_id) === 0;
+}
+
+/**
+ * The drying zones of a unit, null for a unit that reports none.
+ *
+ * The AMS 3H reports humidity and temperature per zone rather than for the
+ * unit: the seven ordinary slots share one compartment and the two drying
+ * slots have their own. Neither stands for the whole unit, so the unit's own
+ * readings stay empty and the zones carry them, each with the slots it holds,
+ * the zone with the heater last, the way Bambu Studio draws them.
+ *
+ * @param {object} unit - an entry of `print.ams.ams`
+ * @returns {object[]|null} `{ slots, dryer, humidity, humidityPercent, temperature }` per zone
+ */
+function amsZones(unit) {
+    if (!Array.isArray(unit?.zone_info) || !unit.zone_info.length) return null;
+
+    return unit.zone_info
+        .filter(zone => zone && typeof zone === "object")
+        .map(zone => ({
+            slots: (Array.isArray(zone.zone_slots) ? zone.zone_slots : [])
+                .map(slot => convertAMSandSlot(unit.id, slot))
+                .filter(label => label !== "Z"),
+            dryer: isDryerZone(zone),
+            ...amsReadings(zone),
+        }))
+        .sort((a, b) => Number(a.dryer) - Number(b.dryer));
+}
+
+/**
+ * Whether a unit of this model has a dryer: true for an AMS 2 Pro, an AMS HT
+ * and the AMS 3H, which dries in two of its slots, false for the original AMS and the AMS Lite, null while the model is not
  * known, which leaves the decision to the report.
  *
  * @param {string|null} model - as `amsModelsFromVersion()` names it
  * @returns {boolean|null}
  */
 export function modelCanDry(model) {
-    if (model === "AMS 2 Pro" || model === "AMS HT") return true;
+    if (model === "AMS 2 Pro" || model === "AMS HT" || model === "AMS 3H") return true;
     if (model === "AMS" || model === "AMS Lite") return false;
     return null;
 }

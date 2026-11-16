@@ -840,6 +840,17 @@ caption.ams-env .ams-env-readings > span {
   margin-right: 12px;
 }
 
+/* A drying zone of the AMS 3H groups its readings behind the slots it holds,
+   so the spans inside it need the spacing the direct children have. */
+caption.ams-env .ams-env-zone > span + span {
+  margin-left: 8px;
+}
+
+caption.ams-env .ams-env-zone-slots {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
 /* ---- Folding a unit ----
    The header is the control: the whole line folds the slots away and back,
    the chevron at its right end says so and points down while open, right

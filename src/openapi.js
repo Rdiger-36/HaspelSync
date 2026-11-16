@@ -218,6 +218,13 @@ const schemas = {
         humidity: t.nullable(t.integer("Bambu's level, 1 (dry) to 5 (wet).")),
         humidityPercent: t.nullable(t.number()),
         temperature: t.nullable(t.number("Degrees Celsius.")),
+        zones: t.array(t.object({
+            slots: t.array(t.string(), "The slot labels in this zone."),
+            dryer: t.boolean("Whether this is the zone with the heater."),
+            humidity: t.nullable(t.integer("Bambu's level, 1 (dry) to 5 (wet).")),
+            humidityPercent: t.nullable(t.number()),
+            temperature: t.nullable(t.number("Degrees Celsius.")),
+        }), "Only a unit that measures per zone carries this, the AMS 3H of an H3C: its seven ordinary slots and its two drying slots. The unit's own readings are null then."),
         drying: t.nullable(t.object({
             active: t.boolean(),
             remainingMinutes: t.nullable(t.integer()),

@@ -735,11 +735,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 `</div>`;
         });
 
-        // Folded, the head keeps one symbol per running dryer, so a fault or a
-        // cycle cooling down is still seen without opening the card
+        // Folded, the head keeps one symbol per kind with how many dryers it
+        // stands for, so a fault or a cycle cooling down is still seen without
+        // opening the card. The tooltip names the units.
         const collapsed = collapsedUnits().has(DRYER_CARD_KEY);
-        const summary = running.map(([unitKey, env]) =>
-            `<span title="${escapeHtml(amsUnitLabel(unitKey, env).label)}">${dryerIcon(env.drying)}</span>`).join("");
+        const byTone = new Map();
+        for (const [unitKey, env] of running) {
+            const tone = dryerTone(env.drying);
+            if (!byTone.has(tone)) byTone.set(tone, []);
+            byTone.get(tone).push(amsUnitLabel(unitKey, env).label);
+        }
+        const summary = ["warm", "cool", "error"].filter(tone => byTone.has(tone)).map(tone => {
+            const units = byTone.get(tone);
+            const icon = { cool: "❄️", error: "⚠️", warm: "♨️" }[tone];
+            return `<span class="dryer-summary-${tone}" title="${escapeHtml(units.join(", "))}">${icon} ${escapeHtml(t(`dashboard.dryers.tone.${tone}`, { count: units.length }))}</span>`;
+        }).join("");
         const toggle = t(collapsed ? "dashboard.unit.expand" : "dashboard.unit.collapse");
         const head = `<div class="dryer-card-head">` +
             `<span class="dryer-card-title">${escapeHtml(t("dashboard.dryers.title"))}</span>` +

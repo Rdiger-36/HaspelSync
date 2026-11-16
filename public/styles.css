@@ -860,12 +860,16 @@ caption.ams-env .ams-env-drying-mark {
 
 .dryer-card-title { font-weight: 600; }
 .dryer-card-count { color: var(--text-muted); }
-.dryer-card-summary { display: none; letter-spacing: 2px; }
+.dryer-card-summary { display: none; }
+.dryer-card-summary > span + span { margin-left: 14px; }
+.dryer-summary-warm { color: var(--warn); }
+.dryer-summary-cool { color: var(--accent-text); }
+.dryer-summary-error { color: var(--bad); }
 .dryer-card-head .ams-toggle { margin-left: auto; }
 .dryer-card-head:hover .ams-toggle { color: var(--text); }
 
 .dryer-card.is-collapsed .dryer-rows { display: none; }
-.dryer-card.is-collapsed .dryer-card-summary { display: inline; }
+.dryer-card.is-collapsed .dryer-card-summary { display: inline; font-weight: 600; }
 .dryer-card.is-collapsed .ams-toggle svg { transform: rotate(-90deg); }
 
 /* One grid for all rows, so the columns line up from row to row. No column

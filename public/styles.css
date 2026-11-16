@@ -829,36 +829,58 @@ caption.ams-env .ams-env-unit {
   color: var(--text-soft);
 }
 
-/* The dryer gets a line of its own under the header while it runs, so the
-   header itself reads the same for every unit, drying or not. */
-caption.ams-env .ams-env-dryer {
-  display: block;
-  margin-top: 4px;
+caption.ams-env .ams-env-drying-mark {
+  cursor: help;
 }
 
-caption.ams-env .ams-env-dryer > span + span {
-  margin-left: 10px;
+/* ---- Dryer card ----
+   One row per running dryer, above the slot tables. Columns line up across
+   the rows on a wide screen, so several dryers compare at a glance. */
+.dryer-card {
+  border: 1px solid #8884;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  /* One grid for all rows, so the columns line up from row to row */
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) 130px max-content;
+  column-gap: 18px;
+  align-items: center;
+  font-size: 0.92em;
 }
 
-caption.ams-env .ams-dryer-name {
+.dryer-card-head {
+  grid-column: 1 / -1;
   font-weight: 600;
+  margin-bottom: 4px;
 }
 
-caption.ams-env .ams-dryer-warm .ams-dryer-name { color: var(--warn); }
-caption.ams-env .ams-dryer-cool .ams-dryer-name { color: var(--accent-text); }
-caption.ams-env .ams-dryer-error .ams-dryer-name { color: var(--bad); }
+.dryer-row { display: contents; }
 
-caption.ams-env .ams-dryer-bar {
-  display: inline-block;
-  width: 120px;
+.dryer-row > span {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+.dryer-unit { font-weight: 600; }
+.dryer-warm .dryer-unit { color: var(--warn); }
+.dryer-cool .dryer-unit { color: var(--accent-text); }
+.dryer-error .dryer-unit { color: var(--bad); }
+.dryer-details, .dryer-left { color: var(--text-muted); }
+
+.dryer-bar {
+  display: block;
+  width: 100%;
   height: 4px;
   border-radius: 2px;
   background: var(--border);
   overflow: hidden;
-  vertical-align: middle;
 }
 
-caption.ams-env .ams-dryer-bar > span {
+.dryer-bar > span {
   display: block;
   height: 100%;
   background: var(--warn);
@@ -3198,23 +3220,21 @@ a.menu-foot-update:hover { text-decoration: underline; }
   /* The drying cycle carries a target and a countdown, which is more than fits
      next to the humidity on a phone. Its own line, under the readings it
      belongs to. */
-  /* On a phone the dryer line wraps between its parts, never inside one, so
-     a reading and its unit stay together. */
-  caption.ams-env .ams-env-dryer {
-    flex-basis: 100%;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 4px 10px;
+  /* On a phone a dryer row stacks: the unit and its state on one line, the
+     rest below, and the bar across the full width. */
+  .dryer-card { display: block; }
+
+  .dryer-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 10px;
+    padding: 6px 0;
+    border-top: 1px solid var(--border-soft);
   }
 
-  caption.ams-env .ams-env-dryer > span {
-    white-space: nowrap;
-  }
-
-  caption.ams-env .ams-env-dryer > span + span {
-    margin-left: 0;
-  }
+  .dryer-row > span { padding: 0; border-top: 0; }
+  .dryer-progress { grid-column: 1 / -1; }
+  .dryer-progress:empty, .dryer-details:empty, .dryer-left:empty { display: none; }
 
 
 

@@ -183,6 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // fight the column width sync for nothing.
             setAmsEnv(data.amsEnv);
             refreshAmsEnvCaptions();
+            renderDryerCard();
         } else if (data.type === 'print_filaments' && data.printer === printerId && !isDialogOpen()) {
             // A spool was named for a filament swapped onto the external
             // holder, here or in another tab
@@ -634,16 +635,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!env) return "";
 
         const parts = [];
-        const drying = env.drying?.active ? env.drying : null;
-        let dryerReadings = [];
         if (Array.isArray(env.zones) && env.zones.length) {
             for (const zone of env.zones) {
-                // While the dryer runs its readings belong to the dryer line,
-                // which names the slots already
-                if (zone.dryer && drying) {
-                    dryerReadings = readingSpans(zone, false);
-                    continue;
-                }
                 const readings = readingSpans(zone, false);
                 if (!readings.length) continue;
                 const slots = (zone.slots || []).join(", ");
@@ -654,52 +647,107 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             parts.push(...readingSpans(env));
         }
-        if (drying) parts.push(dryerLineHtml(drying, dryerReadings));
+        // A unit that is drying says so with a mark; what the dryer is doing
+        // is in the dryer card above the tables
+        if (env.drying?.active) {
+            parts.push(`<span class="ams-env-drying-mark" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">${dryerIcon(env.drying)}</span>`);
+        }
 
         return parts.join("");
     }
 
-    // The line under a unit's header while its dryer runs: what the cycle is
-    // doing, its target, the filament it was set for, how far it is and how
-    // long it has left. A unit that dries only some of its slots, the AMS 3H,
-    // names them and carries their readings here. Absent at rest, so the
-    // header of a unit nobody is drying looks as it always did.
-    //
+    // How a running dryer looks: amber while it works, blue while it cools
+    // down, red when it reports a fault.
+    function dryerTone(drying) {
+        const status = dryerStatus(drying);
+        if (status === "cooling") return "cool";
+        if (status === "error" || status === "heatOutOfControl") return "error";
+        return "warm";
+    }
+
+    function dryerIcon(drying) {
+        return { cool: "❄️", error: "⚠️", warm: "♨️" }[dryerTone(drying)];
+    }
+
     // A cycle known only by its countdown has no state of its own and reads
     // as drying, which is all the countdown can say.
-    function dryerLineHtml(drying, readings = []) {
-        const status = drying.status && drying.status !== "off" ? drying.status : "drying";
-        const tone = status === "cooling" ? "cool" : (status === "error" || status === "heatOutOfControl" ? "error" : "warm");
-        const icon = { cool: "❄️", error: "⚠️", warm: "♨️" }[tone];
-        const slots = Array.isArray(drying.slots) && drying.slots.length ? drying.slots.join(", ") : null;
+    function dryerStatus(drying) {
+        return drying.status && drying.status !== "off" ? drying.status : "drying";
+    }
 
-        const name = slots ? t("dashboard.env.dryerSlots", { slots }) : t("dashboard.env.dryer");
-        const stateKey = `dashboard.env.dryStatus.${status}`;
-        let state = I18N.has(stateKey) ? t(stateKey) : status;
-        if (status === "drying" && drying.phase && I18N.has(`dashboard.env.dryPhase.${drying.phase}`)) {
-            state += ` (${t(`dashboard.env.dryPhase.${drying.phase}`)})`;
+    // The dryer card: one row per unit whose dryer is running, above the slot
+    // tables, so the tables read the same for every unit whether it dries or
+    // not and several dryers can be compared at a glance. Gone while nothing
+    // dries. Each row says which unit (and on an AMS 3H which slots), what the
+    // cycle is doing, the temperature and filament it was set to, how far it
+    // is where the setting says how long it runs, and the time left.
+    function dryerCardHtml() {
+        // In the order the tables stand in, which is unit order; the readings
+        // come in the order of the report, where the AMS 3H can sit anywhere
+        const order = [...document.querySelectorAll("caption.ams-env")].map(caption => caption.dataset.unit);
+        const rank = unitKey => (order.indexOf(unitKey) + 1) || order.length + 1;
+        const running = Object.entries(amsEnvByUnit)
+            .filter(([, env]) => env?.drying?.active)
+            .sort(([a], [b]) => rank(a) - rank(b));
+        if (!running.length) return "";
+
+        const rows = running.map(([unitKey, env]) => {
+            const drying = env.drying;
+            const status = dryerStatus(drying);
+            const stateKey = `dashboard.env.dryStatus.${status}`;
+            let state = I18N.has(stateKey) ? t(stateKey) : status;
+            if (status === "drying" && drying.phase && I18N.has(`dashboard.env.dryPhase.${drying.phase}`)) {
+                state += ` (${t(`dashboard.env.dryPhase.${drying.phase}`)})`;
+            }
+            const details = [];
+            if (drying.targetTemp) details.push(`${drying.targetTemp} °C`);
+            if (drying.filament) details.push(drying.filament);
+
+            const slots = Array.isArray(drying.slots) && drying.slots.length ? ` ${drying.slots.join(", ")}` : "";
+            const name = `${amsUnitLabel(unitKey, env).label}${slots}`;
+
+            let bar = "";
+            if (status === "drying" && drying.durationHours && drying.remainingMinutes != null) {
+                const done = Math.min(100, Math.max(0, Math.round((1 - drying.remainingMinutes / (drying.durationHours * 60)) * 100)));
+                bar = `<span class="dryer-bar" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="100"><span style="width:${done}%"></span></span>`;
+            }
+            const left = drying.remainingMinutes > 0
+                ? escapeHtml(t("dashboard.env.dryLeft", { time: formatRemaining(drying.remainingMinutes) }))
+                : "";
+
+            return `<div class="dryer-row dryer-${dryerTone(drying)}">` +
+                `<span class="dryer-unit">${dryerIcon(drying)} ${escapeHtml(name)}</span>` +
+                `<span class="dryer-state">${escapeHtml(state)}</span>` +
+                `<span class="dryer-details">${escapeHtml(details.join(" · "))}</span>` +
+                `<span class="dryer-progress">${bar}</span>` +
+                `<span class="dryer-left">${left}</span>` +
+                `</div>`;
+        });
+
+        return `<div class="dryer-card-head">${escapeHtml(t("dashboard.dryers.title"))}</div>${rows.join("")}`;
+    }
+
+    // Puts the dryer card in front of the first slot table, updates it in
+    // place, or takes it away. Called after either view has built its tables
+    // and on every ams_env event, which is how a cycle starting or ending
+    // shows without a rebuild.
+    function renderDryerCard() {
+        const list = getElementSafe("spool-list");
+        if (!list) return;
+        const existing = list.querySelector(":scope > .dryer-card");
+        const html = dryerCardHtml();
+        if (!html) {
+            existing?.remove();
+            return;
         }
-
-        const details = [state];
-        if (drying.targetTemp) details.push(`${drying.targetTemp} °C`);
-        if (drying.filament) details.push(drying.filament);
-
-        const spans = [
-            `<span class="ams-dryer-name">${icon} ${escapeHtml(name)}</span>`,
-            `<span>${escapeHtml(details.join(" · "))}</span>`,
-        ];
-        // How far the cycle is, where the setting says how long it runs
-        if (status === "drying" && drying.durationHours && drying.remainingMinutes != null) {
-            const total = drying.durationHours * 60;
-            const done = Math.min(100, Math.max(0, Math.round((1 - drying.remainingMinutes / total) * 100)));
-            spans.push(`<span class="ams-dryer-bar" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="100"><span style="width:${done}%"></span></span>`);
+        if (existing) {
+            existing.innerHTML = html;
+            return;
         }
-        if (drying.remainingMinutes > 0) {
-            spans.push(`<span class="ams-dryer-left">${escapeHtml(t("dashboard.env.dryLeft", { time: formatRemaining(drying.remainingMinutes) }))}</span>`);
-        }
-        spans.push(...readings);
-
-        return `<span class="ams-env-dryer ams-dryer-${tone}" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">${spans.join("")}</span>`;
+        const card = document.createElement("div");
+        card.className = "dryer-card";
+        card.innerHTML = html;
+        list.insertBefore(card, list.querySelector(":scope > table"));
     }
 
     /* ---- Folding a unit ----
@@ -841,6 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Every column to its widest cell, so the tables of the units line up.
         synchronizeSelectedColumns(SYNCED_COLUMNS);
+        renderDryerCard();
     }
 
     function synchronizeSelectedColumns(indices) {
@@ -2706,6 +2755,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Every column to its widest cell, so AMS A / AMS B / … line up.
             synchronizeSelectedColumns(SYNCED_COLUMNS);
+            renderDryerCard();
 
             const missing = buildGcodeMissing(printData);
             if (missing) el.appendChild(missing);

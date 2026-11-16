@@ -500,6 +500,10 @@ one every 30 seconds. Do not feed them into `extractComparableTrayData()`: they
 change on every report and would make every report look like a slot change.
 Which fields a unit sends depends on the hardware, so every one of them is
 optional; the shapes that have been observed are in `test/ams.env.test.js`.
+The drying state is read from `info` the way Bambu Studio reads it (bits 4 to
+7, from the unit or from the AMS 3H zone of two slots), but a countdown the
+bits call off still wins, because Studio reads them only on printers that dry
+from afar and a report does not say which those are.
 
 **Changing slot classification:** `processSlot()` in `mqtt.js` branches, in
 order: invalid slot → empty slot → 3rd party (unidentified) → Bambu Lab. The

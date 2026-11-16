@@ -1035,6 +1035,15 @@ export function extractAmsEnvironment(amsArray, models = {}) {
         const canDry = modelCanDry(model) ?? (dryTime !== null || !!setting);
         const settingTemp = amsNumber(setting?.dry_temperature);
         const settingDuration = amsNumber(setting?.dry_duration);
+        // What the cycle is doing, from the zone with the heater or, on a unit
+        // without zones, from the unit's own info. A unit that reports no info
+        // has the countdown alone, and a running one is all "active" can mean.
+        const read = canDry ? dryState(dryingSource) : null;
+        // Studio reads the bits only on a printer that can start a cycle from
+        // afar, which nothing in a report says. Where they read "off" while
+        // the countdown runs they say nothing, and the countdown decides as it
+        // always did, so no printer loses a cycle it used to show.
+        const state = read && !(read.status === "off" && (dryTime ?? 0) > 0) ? read : null;
 
         return {
             amsId,
@@ -1044,7 +1053,11 @@ export function extractAmsEnvironment(amsArray, models = {}) {
             temperature,
             ...(zones ? { zones } : {}),
             drying: canDry ? {
-                active: (dryTime ?? 0) > 0,
+                active: state ? state.status !== "off" : (dryTime ?? 0) > 0,
+                status: state?.status ?? null,
+                phase: state?.phase ?? null,
+                // Only a unit with drying zones dries some of its slots
+                ...(zones ? { slots: zones.find(zone => zone.dryer)?.slots ?? [] } : {}),
                 remainingMinutes: dryTime !== null && dryTime > 0 ? dryTime : null,
                 // Both are -1 while nothing is set, which is not a temperature
                 // and not a duration.
@@ -1087,16 +1100,63 @@ function amsReadings(source) {
 /**
  * Whether a drying zone is the one with the heater.
  *
- * The AMS 3H of an H3C dries in two of its nine slots, 6 and 8, and reports
- * them as zone 0 with `zone_slots` [5, 7] (issue #262). Bambu Studio draws that
- * zone apart, with its own humidity and its drying state, and ha-bambulab reads
- * the drying timer and setting from zone 0 as well, observing that zone 1
- * repeats the timer. `zone_dry_info` read "1" on zone 0 and "0" on zone 1 in
- * the one trace there is, which may say the same thing, but nothing confirms
- * what the field means, so the zone id decides.
+ * Bambu Studio's rule, `DevAmsZone::SupportDrying()` in
+ * `src/slic3r/GUI/DeviceCore/DevFilaSystem.h`: a zone of two slots dries, any
+ * other does not. The AMS 3H of an H3C dries in slots 6 and 8 and reports them
+ * as zone 0 with `zone_slots` [5, 7] (issue #262), which ha-bambulab keys on
+ * instead; the slot count is what the vendor's own client reads, and it does
+ * not depend on the order the firmware numbers its zones in.
  */
 function isDryerZone(zone) {
-    return Number(zone?.zone_id) === 0;
+    return Array.isArray(zone?.zone_slots) && zone.zone_slots.length === 2;
+}
+
+/**
+ * The drying states a zone reports, by the number in bits 4 to 7 of its
+ * `info`, as Bambu Studio's `DevAms::DryStatus` names them.
+ */
+const DRY_STATUSES = ["off", "checking", "drying", "cooling", "stopping", "error", "heatOutOfControl", "testing"];
+
+/** The two phases of a drying cycle, bits 22 to 23 of the same field. */
+const DRY_PHASES = [null, "heating", "dehumidify"];
+
+/**
+ * `count` bits of a hex string from bit `start`, the way Bambu Studio's
+ * `DevUtil::get_flag_bits()` reads the `info` fields. Done with arithmetic
+ * rather than shifts: the value is wider than the 32 bits a JavaScript shift
+ * works on ("240402026" is 36 bits).
+ *
+ * @returns {number|null} the bits, null where the field is no hex number
+ */
+function flagBits(hex, start, count) {
+    if (typeof hex !== "string" || !/^[0-9a-fA-F]+$/.test(hex)) return null;
+    const value = Number.parseInt(hex, 16);
+    if (!Number.isSafeInteger(value)) return null;
+    return Math.floor(value / 2 ** start) % 2 ** count;
+}
+
+/**
+ * What an `info` field says about a drying cycle, null where there is none.
+ *
+ * Read the way Bambu Studio reads it (`DevFilaSystemParser`): the state in
+ * bits 4 to 7, the phase in bits 22 to 23, from a zone of the AMS 3H and from
+ * the unit itself on an AMS 2 Pro or an AMS HT. Undocumented by Bambu Lab, so
+ * the vendor's client is the reference, and the fixtures agree with it: the
+ * one AMS 2 Pro reporting a running cycle (`x1c-multi-ams`, unit 2, 583
+ * minutes left) has "142023", state 2, drying, and every unit at rest reads 0.
+ * The callers ask only for a unit that can dry; Studio also reads the bits
+ * only where drying is something the unit does.
+ *
+ * @param {object} source - an entry of `zone_info`, or a unit of `print.ams.ams`
+ * @returns {{status: string, phase: string|null}|null}
+ */
+function dryState(source) {
+    const status = flagBits(source?.info, 4, 4);
+    if (status === null) return null;
+    return {
+        status: DRY_STATUSES[status] ?? "unknown",
+        phase: DRY_PHASES[flagBits(source.info, 22, 2)] ?? null,
+    };
 }
 
 /**

@@ -227,6 +227,9 @@ const schemas = {
         }), "Only a unit that measures per zone carries this, the AMS 3H of an H3C: its seven ordinary slots and its two drying slots. The unit's own readings are null then."),
         drying: t.nullable(t.object({
             active: t.boolean(),
+            status: t.nullable(t.string("What the cycle is doing, read from the unit or, on an AMS 3H, from its drying zone: `off`, `checking`, `drying`, `cooling`, `stopping`, `error`, `heatOutOfControl` or `testing`. Null where the unit reports no state, and where it reports `off` while the countdown runs; `active` then follows the countdown.")),
+            phase: t.nullable(t.string("`heating` or `dehumidify` while the unit dries, null otherwise.")),
+            slots: t.array(t.string(), "The slots the dryer serves, on a unit with drying zones only."),
             remainingMinutes: t.nullable(t.integer()),
             targetTemp: t.nullable(t.number()),
             durationHours: t.nullable(t.number()),

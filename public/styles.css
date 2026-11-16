@@ -829,9 +829,39 @@ caption.ams-env .ams-env-unit {
   color: var(--text-soft);
 }
 
-caption.ams-env .ams-env-drying {
-  color: var(--warn);
+/* The dryer gets a line of its own under the header while it runs, so the
+   header itself reads the same for every unit, drying or not. */
+caption.ams-env .ams-env-dryer {
+  display: block;
+  margin-top: 4px;
+}
+
+caption.ams-env .ams-env-dryer > span + span {
+  margin-left: 10px;
+}
+
+caption.ams-env .ams-dryer-name {
   font-weight: 600;
+}
+
+caption.ams-env .ams-dryer-warm .ams-dryer-name { color: var(--warn); }
+caption.ams-env .ams-dryer-cool .ams-dryer-name { color: var(--accent-text); }
+caption.ams-env .ams-dryer-error .ams-dryer-name { color: var(--bad); }
+
+caption.ams-env .ams-dryer-bar {
+  display: inline-block;
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+caption.ams-env .ams-dryer-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--warn);
 }
 
 /* The readings sit in a span of their own, so each needs the spacing the
@@ -3168,9 +3198,22 @@ a.menu-foot-update:hover { text-decoration: underline; }
   /* The drying cycle carries a target and a countdown, which is more than fits
      next to the humidity on a phone. Its own line, under the readings it
      belongs to. */
-  caption.ams-env .ams-env-drying {
+  /* On a phone the dryer line wraps between its parts, never inside one, so
+     a reading and its unit stay together. */
+  caption.ams-env .ams-env-dryer {
     flex-basis: 100%;
-    text-align: center;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 10px;
+  }
+
+  caption.ams-env .ams-env-dryer > span {
+    white-space: nowrap;
+  }
+
+  caption.ams-env .ams-env-dryer > span + span {
+    margin-left: 0;
   }
 
 

@@ -48,12 +48,14 @@ Ordered by how likely a user is to hit it.
   - `tray_exist_bits` read "f0000000" with slots 0 to 3 loaded, which looks
     like a 32 bit mask counted from the top. Nothing here reads the field, so
     it stays an observation. `cfs` [2,5,7] and `csl` [8194] are not read either
-  - the drying zones: `zone_info` is shown per zone, zone 0 taken as the one
-    with the heater (slots 6 and 8, as Bambu Studio showed them in the issue,
-    and ha-bambulab reads the timer there too). A running drying cycle has not
-    been seen, and neither has a delta report carrying only part of a zone,
-    which ha-bambulab merges and this service would show as missing readings
-    until the next full report
+  - the drying zones: `zone_info` is shown per zone and read the way Bambu
+    Studio reads it (`DevFilaSystem.cpp`): the zone of two slots is the
+    dryer, its state is bits 4 to 7 of the zone's `info` (off, checking,
+    drying, cooling, stopping, error, ...), the phase bits 22 to 23. A running
+    cycle has not been seen; the trace reads state 0 on both zones. Not seen
+    either: a delta report carrying only part of a zone, which ha-bambulab
+    merges and this service would show as missing readings until the next
+    full report
   - Bambu Studio names the nine slots 1 to 9 and nothing more (screenshot in
     the issue); `E1` to `E9` add the unit letter, which the four slot units
     carry too

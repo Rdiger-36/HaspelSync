@@ -634,8 +634,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!env) return "";
 
         const parts = [];
+        const drying = env.drying?.active ? env.drying : null;
+        let dryerReadings = [];
         if (Array.isArray(env.zones) && env.zones.length) {
             for (const zone of env.zones) {
+                // While the dryer runs its readings belong to the dryer line,
+                // which names the slots already
+                if (zone.dryer && drying) {
+                    dryerReadings = readingSpans(zone, false);
+                    continue;
+                }
                 const readings = readingSpans(zone, false);
                 if (!readings.length) continue;
                 const slots = (zone.slots || []).join(", ");
@@ -646,13 +654,52 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             parts.push(...readingSpans(env));
         }
-        if (env.drying?.active) {
-            const target = env.drying.targetTemp ? ` ${t("dashboard.env.dryingAt", { temp: env.drying.targetTemp })}` : "";
-            const left = env.drying.remainingMinutes ? `, ${t("dashboard.env.dryingLeft", { minutes: env.drying.remainingMinutes })}` : "";
-            parts.push(`<span class="ams-env-drying" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">♨️ ${escapeHtml(t("dashboard.env.drying"))}${escapeHtml(target)}${escapeHtml(left)}</span>`);
-        }
+        if (drying) parts.push(dryerLineHtml(drying, dryerReadings));
 
         return parts.join("");
+    }
+
+    // The line under a unit's header while its dryer runs: what the cycle is
+    // doing, its target, the filament it was set for, how far it is and how
+    // long it has left. A unit that dries only some of its slots, the AMS 3H,
+    // names them and carries their readings here. Absent at rest, so the
+    // header of a unit nobody is drying looks as it always did.
+    //
+    // A cycle known only by its countdown has no state of its own and reads
+    // as drying, which is all the countdown can say.
+    function dryerLineHtml(drying, readings = []) {
+        const status = drying.status && drying.status !== "off" ? drying.status : "drying";
+        const tone = status === "cooling" ? "cool" : (status === "error" || status === "heatOutOfControl" ? "error" : "warm");
+        const icon = { cool: "❄️", error: "⚠️", warm: "♨️" }[tone];
+        const slots = Array.isArray(drying.slots) && drying.slots.length ? drying.slots.join(", ") : null;
+
+        const name = slots ? t("dashboard.env.dryerSlots", { slots }) : t("dashboard.env.dryer");
+        const stateKey = `dashboard.env.dryStatus.${status}`;
+        let state = I18N.has(stateKey) ? t(stateKey) : status;
+        if (status === "drying" && drying.phase && I18N.has(`dashboard.env.dryPhase.${drying.phase}`)) {
+            state += ` (${t(`dashboard.env.dryPhase.${drying.phase}`)})`;
+        }
+
+        const details = [state];
+        if (drying.targetTemp) details.push(`${drying.targetTemp} °C`);
+        if (drying.filament) details.push(drying.filament);
+
+        const spans = [
+            `<span class="ams-dryer-name">${icon} ${escapeHtml(name)}</span>`,
+            `<span>${escapeHtml(details.join(" · "))}</span>`,
+        ];
+        // How far the cycle is, where the setting says how long it runs
+        if (status === "drying" && drying.durationHours && drying.remainingMinutes != null) {
+            const total = drying.durationHours * 60;
+            const done = Math.min(100, Math.max(0, Math.round((1 - drying.remainingMinutes / total) * 100)));
+            spans.push(`<span class="ams-dryer-bar" role="progressbar" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="100"><span style="width:${done}%"></span></span>`);
+        }
+        if (drying.remainingMinutes > 0) {
+            spans.push(`<span class="ams-dryer-left">${escapeHtml(t("dashboard.env.dryLeft", { time: formatRemaining(drying.remainingMinutes) }))}</span>`);
+        }
+        spans.push(...readings);
+
+        return `<span class="ams-env-dryer ams-dryer-${tone}" title="${escapeHtml(t("dashboard.env.dryingTitle"))}">${spans.join("")}</span>`;
     }
 
     /* ---- Folding a unit ----

@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.3.8-dev.3
    - New Features:
       - The header of the AMS 3H shows humidity and temperature of its two compartments the way Bambu Studio does: the seven ordinary slots together, the drying slots 6 and 8 (`E6`, `E8`) on their own. The unit itself reports no reading, only its zones, and the dryer is the zone of two slots, which is how Bambu Studio tells it apart (issue #262)
       - Running dryers get a card of their own above the slot tables, one row per unit, on the AMS 2 Pro, the AMS HT and the AMS 3H alike: what the dryer is doing, the temperature and filament it was set to, a progress bar where the setting says how long it runs, and the time left in hours and minutes. The state is read the way Bambu Studio reads it, so a dryer cooling down after its cycle or stopped by an error says so instead of disappearing. The card folds like a unit and keeps a count per kind while folded (8× drying, 1× cooling, 2× error), the header of a drying unit carries a mark, and the card is gone while nothing dries. `/api/status` carries the state as `status` and `phase` in `drying`

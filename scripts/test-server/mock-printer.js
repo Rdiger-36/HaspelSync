@@ -123,7 +123,8 @@ function parsePublish(payload, flags) {
  * @param {string} serial - the printer's serial number
  * @param {object[]} units - the AMS units of the report, for their ids
  * @param {string} family - the prefix for the four slot units: `ams` for the
- *   original AMS, `ams_f1` for an AMS Lite, `n3f` for an AMS 2 Pro. An HT is
+ *   original AMS, `ams_f1` for an AMS Lite, `n3f` for an AMS 2 Pro, or a comma
+ *   separated list of them, one per unit in unit order. An HT is
  *   always `n3s`, nothing else sits at unit id 128 and up, and unit 32 is
  *   always the AMS 3H of an H3C, `n10a` with the unit id in its own `id`
  *   field, as ha-bambulab's H3C payload carries it
@@ -138,7 +139,8 @@ function versionAnswer(serial, units, family) {
     for (const unit of units) {
         const id = Number(unit.id);
         if (!Number.isInteger(id)) continue;
-        const prefix = id >= 128 ? "n3s" : (id === 32 ? "n10a" : family);
+        const families = family.split(",");
+        const prefix = id >= 128 ? "n3s" : (id === 32 ? "n10a" : families[Math.min(id, families.length - 1)]);
         modules.push({
             name: prefix === "n10a" ? prefix : `${prefix}/${id}`,
             ...(prefix === "n10a" ? { id } : {}),

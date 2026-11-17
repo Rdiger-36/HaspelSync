@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Deprecated:
+      - The old image name ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus receives its last release before 1.5.0. From 1.5.0 on, every version is published as ghcr.io/rdiger-36/haspelsync only. A container that runs from the old name says so with this version in its log, in the dialog on the dashboard and under System on the settings page, where it said "for a transition period" before. `/api/notices` carries the version as `stopsAt` in `legacy-image`, `/api/system` as `imageStopsAt`
+
+-----------------------------------------------------------------------------------------------
 Version 1.3.8-dev.3
    - New Features:
       - The header of the AMS 3H shows humidity and temperature of its two compartments the way Bambu Studio does: the seven ordinary slots together, the drying slots 6 and 8 (`E6`, `E8`) on their own. The unit itself reports no reading, only its zones, and the dryer is the zone of two slots, which is how Bambu Studio tells it apart (issue #262)

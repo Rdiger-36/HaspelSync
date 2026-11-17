@@ -449,6 +449,7 @@ async function loadSystemInfo() {
         imageNote.innerHTML = info.imageDeprecated
             ? t("settings.system.imageDeprecatedHtml", {
                 image: `<code>ghcr.io/rdiger-36/haspelsync</code>`,
+                version: escapeHtml(info.imageStopsAt),
                 link: `<a href="https://github.com/Rdiger-36/HaspelSync/blob/main/docs/installation.md" target="_blank" rel="noopener">${escapeHtml(t("settings.system.imageDocsLink"))}</a>`,
             })
             : "";

@@ -49,6 +49,7 @@ export function systemInfo(anonymize = false) {
         // whether that name is the deprecated one
         image: image.image,
         imageDeprecated: image.active,
+        imageStopsAt: image.stopsAt,
         node: process.version,
         platform: `${process.platform} ${process.arch}`,
         os: `${os.type()} ${os.release()}`,

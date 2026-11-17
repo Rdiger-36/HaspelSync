@@ -106,6 +106,9 @@ test("a container from the old image name is told so, in the log on every start"
     const lines = legacyImageLogLines(notice);
     assert.equal(lines.length, 2);
     assert.match(lines[0], /bambulab-ams-spoolman-filamentstatus/);
+    // The end is a version, not "a transition period", wherever it is said
+    assert.equal(notice.stopsAt, "1.5.0");
+    assert.match(lines[0], /from version 1\.5\.0 on/);
     assert.match(lines[1], /ghcr\.io\/rdiger-36\/haspelsync/);
 
     // The HaspelSync image and a checkout say nothing

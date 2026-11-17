@@ -376,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const code = text => `<code>${escapeHtml(text)}</code>`;
         const parts = [
             `<p>${t("dashboard.notice.image.intro", { image: code(notice.image) })}</p>`,
-            `<p>${t("dashboard.notice.image.renamed")}</p>`,
+            `<p>${t("dashboard.notice.image.renamed", { version: escapeHtml(notice.stopsAt) })}</p>`,
             `<p>${t("dashboard.notice.image.switch", { image: code(notice.replacement) })}</p>`,
         ];
         if (notice.docs) {

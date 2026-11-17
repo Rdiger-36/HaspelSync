@@ -117,6 +117,24 @@ The sliced file is read over FTPS, port 990 on the printer. When the login itsel
 
 The printer accepted the TCP connection and answered the TLS handshake with plain text, or not at all, while its MQTT port kept working. That is the printer's FTPS service hung, and it stays hung until the printer is restarted. A restart ends the running print, so either restart now and print again, or let the print finish, which books nothing, and restart afterwards. Before restarting, close other programs that hold a connection to the printer's storage, the storage view in the Device tab of Bambu Studio, a second instance of this service or a script, and try option 3 of the [Debug-Printers CLI](#debug-printers-cli): a listing that hangs or fails with the service's own client confirms that it is the printer. Once the printer answers again, a restart of the service during the print gives it three new attempts; the next print gets them anyway.
 
+## The container stops: cannot write to the data directories
+
+The image runs as the unprivileged user `node`, uid and gid 1000, and nothing in the container runs as root. A bind mounted `printers/` or `logs/` written by an earlier version belongs to root, and the container stops on start with:
+
+```
+Cannot write to the data directories as user 1000:1000:
+  /app/printers
+  ...
+```
+
+Hand the two host directories to that user once and start the container again:
+
+```bash
+sudo chown -R 1000:1000 /path/to/your/config/printers /path/to/your/config/logs
+```
+
+The paths are the host side of the two volumes in your `docker run` or Compose file. A named volume needs nothing, Docker hands it the image's ownership. To run as another user, a NAS account for example, set `user: "UID:GID"` in the Compose file or `--user UID:GID` on `docker run` and give the directories to that user instead.
+
 ## Debug-Printers CLI
 
 The container ships a script that checks the network and MQTT status of a printer from inside the container:

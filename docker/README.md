@@ -18,6 +18,12 @@ directories are created next to the file: `data/printers` holds the
 configuration, `data/logs` the logs, `data/spoolman` Spoolman's database in the
 stack. Under `docker/` they are ignored by git.
 
+HaspelSync runs as the unprivileged user `node`, uid and gid 1000, and
+nothing in the container runs as root. `data/printers` and `data/logs` have to
+be writable by that user, which every Compose file says above its volumes;
+`user:` picks another one. The service checks both directories on start and
+stops with the `chown` that fixes them when it cannot write to them.
+
 All four run the service on port 4000 with the time zone `Europe/Berlin`;
 change `TZ` to yours, it only affects the timestamps in the logs. Everything
 else, the Spoolman endpoint, the printers and the operation mode, is configured

@@ -5,6 +5,7 @@
  *  - Catches all global Node.js errors (including unhandled Promise rejections)
  *  - Sends all output to stdout/stderr → visible in `docker logs`
  *  - Clearly prefixes its own messages with "[Service]" for easy identification
+ *  - Checks that printers/ and logs/ are writable, see src/datadirs.js
  *  - Starts backend.js safely
  *  - Handles SIGTERM / SIGINT, which the supervisor forwards on a Docker stop
  *
@@ -62,6 +63,16 @@ process.on("exit", (code) => {
 // ---------------------------------------------------------
 (async () => {
     try {
+    // Before the backend: its first import is the logger, which writes to
+    // logs/ at once, and a directory left to root by an earlier image would
+    // fail there and on every save afterwards rather than say why.
+    const { checkDataDirs } = await import("./src/datadirs.js");
+    const problem = checkDataDirs();
+    if (problem) {
+        for (const line of problem) logError("DATA DIRECTORIES", line);
+        process.exit(1);
+    }
+
     logInfo("Starting backend.js ...");
 
     // Dynamic import so startup errors can be caught. Resolved as a URL rather

@@ -61,6 +61,8 @@ The Compose file above is [`docker/compose.yml`](../docker/compose.yml) in the r
 
 Both volumes are worth mounting: `/app/printers` holds `printers.json`, `settings.json`, `mappings.json`, `apikeys.json`, `presets.json` and `printstate.json` and makes the configuration survive a container update, `/app/logs` keeps the logs.
 
+The container runs as the unprivileged user `node` (uid and gid 1000), nothing in it runs as root. The two host directories have to be writable by that user: create them before the first start, or Docker creates them as root, and run `sudo chown -R 1000:1000` on them. To run as another user, set `user: "UID:GID"` in the Compose file or `--user UID:GID` on `docker run` and give the directories to that user. If the service cannot write to them it stops on start and says so, see [troubleshooting](troubleshooting.md#the-container-stops-cannot-write-to-the-data-directories).
+
 `TZ` sets the time zone the log timestamps follow. Without it the container runs on UTC.
 
 ## First start

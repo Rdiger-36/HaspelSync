@@ -9,7 +9,7 @@ The documentation of **HaspelSync**. It belongs to the version it sits in: this 
 | [Web UI](web-ui.md) | Dashboard, assigning a spool to a slot, the spool and filament dialog, menu and logs |
 | [Settings](settings.md) | Every card of the settings page, the printer dialog, the service actions, the Spoolman location, a printer that is switched off |
 | [API](api.md) | Who may call it, the API page in the Web UI, the OpenAPI document, and every route in a table |
-| [Troubleshooting](troubleshooting.md) | Reading the logs, the `debug-printers` CLI, diagnostics and what an export contains |
+| [Troubleshooting](troubleshooting.md) | Reading the logs, data directories the container cannot write to, the `debug-printers` CLI, diagnostics and what an export contains |
 | [Legacy mode](legacy-mode.md) | The RFID based tracking of 1.2.x and what it cannot do |
 | [Updating from 1.2.x](updating.md) | The four things an installation updated from 1.2.x can trip over, and what keeps working |
 | [Deprecated configuration](deprecated-configuration.md) | Environment variables, hand-written `printers.json`, and the four container level variables |

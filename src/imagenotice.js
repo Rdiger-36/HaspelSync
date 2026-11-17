@@ -29,6 +29,13 @@ export const IMAGE_NOTICE = "legacy-image";
 /** The name the image was published under before the rename. */
 export const LEGACY_IMAGE = "bambulab-ams-spoolman-filamentstatus";
 
+/**
+ * The first version that is no longer published under the old name. Named in
+ * every place the notice appears, because "a transition period" gave nobody a
+ * reason to act before the updates had already stopped.
+ */
+export const LEGACY_IMAGE_STOPS_AT = "1.5.0";
+
 /** Where every published image lives. */
 const REGISTRY_PATH = "ghcr.io/rdiger-36";
 
@@ -47,7 +54,7 @@ const INSTALL_DOCS_URL = "https://github.com/Rdiger-36/HaspelSync/blob/main/docs
  * a value an older version left in settings.json is not read.
  *
  * @param {string|null} [name] - the baked in image name, `imageName` unless a test says otherwise
- * @returns {{active: boolean, acknowledged: boolean, image: string|null, replacement: string, docs: string}}
+ * @returns {{active: boolean, acknowledged: boolean, image: string|null, replacement: string, stopsAt: string, docs: string}}
  */
 export function legacyImageNotice(name = imageName) {
     return {
@@ -55,6 +62,7 @@ export function legacyImageNotice(name = imageName) {
         acknowledged: state.legacyImageNoticeDismissed,
         image: name ? `${REGISTRY_PATH}/${name}` : null,
         replacement: CURRENT_IMAGE,
+        stopsAt: LEGACY_IMAGE_STOPS_AT,
         docs: INSTALL_DOCS_URL,
     };
 }
@@ -79,7 +87,7 @@ export function dismissLegacyImageNotice() {
 export function legacyImageLogLines(notice = legacyImageNotice()) {
     if (!notice.active) return [];
     return [
-        `[Deprecated] This container runs from the image ${notice.image}. The project is called HaspelSync now and that name will stop receiving releases.`,
+        `[Deprecated] This container runs from the image ${notice.image}. The project is called HaspelSync now, and from version ${notice.stopsAt} on releases are published under the new name only.`,
         `[Deprecated] Switch the image in docker run or docker-compose to ${notice.replacement}; the configuration and the volumes stay as they are. See ${notice.docs}`,
     ];
 }

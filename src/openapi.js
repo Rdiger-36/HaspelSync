@@ -478,7 +478,8 @@ const schemas = {
     SystemInfo: t.object({
         version: t.string(),
         image: t.nullable(t.string("The name the image was published under, `ghcr.io/rdiger-36/haspelsync`; null for a checkout or a locally built image.")),
-        imageDeprecated: t.boolean("The container runs from the old image name, which will stop receiving releases."),
+        imageDeprecated: t.boolean("The container runs from the old image name, which receives no release from `imageStopsAt` on."),
+        imageStopsAt: t.string("The first version that is no longer published under the old image name."),
         node: t.string(),
         platform: t.string(),
         os: t.string(),
@@ -532,6 +533,7 @@ const schemas = {
         acknowledged: t.boolean("Dismissed in the Web UI since the service started. Held in memory for every browser, and back after every start until the image has been switched."),
         image: t.nullable(t.string("The image the container runs from.")),
         replacement: t.string("The image to switch to."),
+        stopsAt: t.string("The first version that is no longer published under the old name."),
         docs: t.string("The page of the documentation that says how."),
     }),
 

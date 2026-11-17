@@ -1,5 +1,9 @@
 -----------------------------------------------------------------------------------------------
 Unreleased
+   - Breaking:
+      - The image runs as the unprivileged user `node`, uid and gid 1000, instead of root, and nothing in the container runs as root any more, `docker exec` and `debug-printers` included. A compromised service can no longer act as root inside the container (issue #267)
+         - An installation with bind mounted `printers/` and `logs/` directories has to hand them to that user once, because everything the earlier images wrote there belongs to root: `sudo chown -R 1000:1000 <printers directory> <logs directory>` on the host. Until then the container stops on start and its log names the directories and this command, instead of failing on the first save
+         - A named volume needs nothing. Another user is set with `user:` in the Compose file or `--user` on `docker run`, and the directories then belong to that user
    - Deprecated:
       - The old image name ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus receives its last release before 1.5.0. From 1.5.0 on, every version is published as ghcr.io/rdiger-36/haspelsync only. A container that runs from the old name says so with this version in its log, in the dialog on the dashboard and under System on the settings page, where it said "for a transition period" before. `/api/notices` carries the version as `stopsAt` in `legacy-image`, `/api/system` as `imageStopsAt`
 

@@ -335,6 +335,32 @@ mosquitto with a self signed certificate, standing in for the printer:
 
 None of this involved real hardware, so it says nothing about the items above.
 
+## Retiring the old image name with 1.5.0
+
+Every tag is published under two names since the rename: `haspelsync` and,
+built on top of it from `docker/Dockerfile.legacy`, the old
+`bambulab-ams-spoolman-filamentstatus`. 1.4.x is the last version line under
+the old name; `LEGACY_IMAGE_STOPS_AT` in `src/imagenotice.js` says so in the
+log, in the dashboard dialog and under System on the settings page since
+1.4.0-dev.1 (#269). Kept through 1.4 on purpose: the rename was only six weeks
+old, and the users still on the old name are the same ones the non-root
+switch of 1.4 (#268) reaches, so they should not meet both at once.
+
+- [ ] With the 1.5.0 bump: drop `LEGACY_IMAGE_NAME` and the legacy build step
+  from `.github/workflows/docker-publish.yml`, and delete
+  `docker/Dockerfile.legacy`.
+- [ ] Decide what the notice does afterwards. A container still on the old
+  name never sees 1.5.0, so nothing in 1.5.0 can tell it anything; the
+  1.4.x builds are the last chance, and they already carry the version.
+  `src/imagenotice.js`, `HASPELSYNC_IMAGE` and their API fields can go with
+  1.5.0 or stay as dead weight, the code has no other use for them.
+**Decided on 2026-11-17: the old package on GHCR stays public.** It only stops
+receiving new versions, so a pull of one of its existing tags keeps working.
+The pulls badge needs nothing: the workflow in the profile repository
+Rdiger-36/Rdiger-36 keeps adding the old count to the new one.
+- [ ] Update the README, `docs/installation.md`, `docker/README.md` and
+  `AGENTS.md`, which all describe the two images.
+
 ## The 1.3.0 release
 
 The dev phase ended with `1.3.0-dev.30`; dev.29 was the build that renamed the

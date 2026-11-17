@@ -20,7 +20,8 @@ stack. Under `docker/` they are ignored by git.
 
 HaspelSync runs as the unprivileged user `node`, uid and gid 1000, and
 nothing in the container runs as root. `data/printers` and `data/logs` have to
-be writable by that user, which every Compose file says above its volumes;
+be writable by that user on a Linux host, which every Compose file says above
+its volumes (Docker Desktop on macOS and Windows needs nothing);
 `user:` picks another one. The service checks both directories on start and
 stops with the `chown` that fixes them when it cannot write to them.
 

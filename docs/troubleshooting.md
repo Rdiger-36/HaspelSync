@@ -119,7 +119,7 @@ The printer accepted the TCP connection and answered the TLS handshake with plai
 
 ## The container stops: cannot write to the data directories
 
-The image runs as the unprivileged user `node`, uid and gid 1000, and nothing in the container runs as root. A bind mounted `printers/` or `logs/` written by an earlier version belongs to root, and the container stops on start with:
+The image runs as the unprivileged user `node`, uid and gid 1000, and nothing in the container runs as root. On a Linux host, a NAS included, a bind mounted `printers/` or `logs/` written by an earlier version belongs to root, and the container stops on start with:
 
 ```
 Cannot write to the data directories as user 1000:1000:
@@ -127,13 +127,17 @@ Cannot write to the data directories as user 1000:1000:
   ...
 ```
 
-Hand the two host directories to that user once and start the container again:
+Hand the two host directories to that user once and start the container again. On the Linux host:
 
 ```bash
 sudo chown -R 1000:1000 /path/to/your/config/printers /path/to/your/config/logs
 ```
 
-The paths are the host side of the two volumes in your `docker run` or Compose file. A named volume needs nothing, Docker hands it the image's ownership. To run as another user, a NAS account for example, set `user: "UID:GID"` in the Compose file or `--user UID:GID` on `docker run` and give the directories to that user instead.
+The paths are the host side of the two volumes in your `docker run` or Compose file. A NAS with a web interface, Synology or Unraid for example, usually offers the same as a permission setting on the shared folder, or a terminal where the command works as it is.
+
+Docker Desktop on macOS and Windows does not run into this: a folder shared from the host is writable for every user in the container, whoever owns it. The one exception is a folder inside the WSL file system on Windows, `\\wsl$\...` or a path like `/home/<you>/...` in a WSL shell, where Linux permissions apply and the command above is run in that WSL shell.
+
+A named volume needs nothing, Docker hands it the image's ownership. To run as another user, a NAS account for example, set `user: "UID:GID"` in the Compose file or `--user UID:GID` on `docker run` and give the directories to that user instead.
 
 ## Debug-Printers CLI
 

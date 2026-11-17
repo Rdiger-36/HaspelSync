@@ -41,7 +41,7 @@ An original Bambu Lab spool is recognised by its RFID tag and linked on its own;
 
 ## What changed in 1.3.0
 
-- **The project is called HaspelSync.** The image is `ghcr.io/rdiger-36/haspelsync`. The old name `ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus` receives every release for a transition period and will be retired, so switch the image in `docker run` or Docker Compose; configuration and volumes stay as they are. A container from the old name says so itself.
+- **The project is called HaspelSync.** The image is `ghcr.io/rdiger-36/haspelsync`. The old name `ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus` receives every release up to the 1.4 line, 1.5.0 and later are published under the new name only, so switch the image in `docker run` or Docker Compose; configuration and volumes stay as they are. A container from the old name says so itself.
 - **G-code tracking is the new default.** Filament consumption is read from the sliced file of the print instead of the AMS RFID remain percentage, so 3rd party spools without a tag are covered as well. The previous behaviour lives on as [Legacy mode](docs/legacy-mode.md).
 - **Everything is configured in the Web UI now.** The [settings page](docs/settings.md) holds every setting and the printer list.
 - **Environment variables and hand-written `printers.json` are deprecated.** They keep working, see [Deprecated configuration](docs/deprecated-configuration.md).

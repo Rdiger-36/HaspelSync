@@ -346,8 +346,6 @@ log, in the dashboard dialog and under System on the settings page since
 old, and the users still on the old name are the same ones the non-root
 switch of 1.4 (#268) reaches, so they should not meet both at once.
 
-- [ ] Before 1.4.0: README and `docs/installation.md` still say "a transition
-  period". Name 1.5.0 there as well, the way the notice does.
 - [ ] With the 1.5.0 bump: drop `LEGACY_IMAGE_NAME` and the legacy build step
   from `.github/workflows/docker-publish.yml`, and delete
   `docker/Dockerfile.legacy`.

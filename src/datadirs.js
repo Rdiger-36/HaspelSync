@@ -67,6 +67,10 @@ export function findUnwritable(dirs, { access = fs.accessSync, readdir = fs.read
  * The lines starting.js prints when findUnwritable() found something: what
  * failed, for which user, and the one command that fixes it on the host.
  *
+ * The command is for a Linux host, which is the only place this comes up:
+ * Docker Desktop on macOS and Windows shares a host folder through a layer
+ * that lets any container user write to it, whatever the owner.
+ *
  * The host path is unknown inside the container, so the command names the
  * mount points and the text says which host directories they stand for.
  */
@@ -80,7 +84,7 @@ export function unwritableMessage(paths, { uid, gid } = {}) {
         `Cannot write to the data directories as ${user}:`,
         ...listed,
         "The image no longer runs as root. Directories and files written by an earlier version belong to root and have to be handed over once.",
-        "On the host, run this for the directories mounted at /app/printers and /app/logs:",
+        "On a Linux host, a NAS or inside WSL, run this for the directories mounted at /app/printers and /app/logs:",
         `  sudo chown -R ${owner} <printers directory> <logs directory>`,
         "Then start the container again. See docs/troubleshooting.md in the repository.",
     ];

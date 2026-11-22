@@ -13,8 +13,10 @@ import {
     checkLayerExtrusion,
     resolveSliceSlots,
     refillsBetween,
+    refillsFromActiveSlot,
     splitAtRefills,
 } from "../src/gcode.js";
+import { activeSlotFromReport } from "../src/utils.js";
 import { matchConsumption, consumptionCandidate } from "../src/ams.js";
 import { refillNote, rememberedSlotCandidates, ranOutSpools, assignmentsLeftOnEmptySpools } from "../src/mqtt.js";
 
@@ -64,6 +66,47 @@ test("a mapping that settles before the first layer is not a refill", () => {
 test("a filament the plate does not use, or one that appears, is not a refill", () => {
     assert.deepEqual(refillsBetween([null, "B1", "A3"], [null, null, "A3"], 40), []);
     assert.deepEqual(refillsBetween([null, null, "A3"], ["A1", null, "A3"], 40), []);
+});
+
+// The A1 with an AMS Lite of issue #273, which sends no print.mapping. The
+// job was echoed as ["A3"], A1 held the same filament. The raw MQTT trace,
+// every tray_now value it carried, in order:
+//
+//   PREPARE    255, then 2 while A3 loads before the first layer
+//   layer 3    A3 runs out, tray_exist_bits 5 to 1, tray_now stays 2
+//   layer 9    tray_now 2 to 0, the state stays RUNNING
+//   FINISH     255 once the filament is unloaded
+const A1_TRAY_NOW = [[255, 0], [2, 0], [2, 3], [0, 9], [0, 33], [255, 33]];
+
+test("an A1 that switches the printing slot to one the job does not use refilled", () => {
+    const mapping = ["A3"];
+    let printing = null;
+    const refills = [];
+    for (const [trayNow, layer] of A1_TRAY_NOW) {
+        const slot = activeSlotFromReport({ ams: { tray_now: String(trayNow) } }).slot;
+        for (const refill of refillsFromActiveSlot(mapping, printing, slot, layer)) refills.push({ ...refill, layer });
+        if (slot) printing = slot;
+    }
+    assert.deepEqual(refills, [{ index: 0, from: "A3", to: "A1", layer: 9 }]);
+});
+
+test("a colour change onto a slot of the job is not a refill", () => {
+    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A1", "A2", 12), []);
+    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A2", "A1", 13), []);
+});
+
+test("a slot change before the first layer, or without a slot on either side, is not a refill", () => {
+    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", "A1", 0), []);
+    assert.deepEqual(refillsFromActiveSlot(["A3"], null, "A3", 5), []);
+    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", null, 5), []);
+    assert.deepEqual(refillsFromActiveSlot(null, "A3", "A1", 5), []);
+});
+
+test("every filament that ran from the emptied slot moves with it", () => {
+    assert.deepEqual(
+        refillsFromActiveSlot(["A3", "A2", "A3"], "A3", "A4", 20),
+        [{ index: 0, from: "A3", to: "A4" }, { index: 2, from: "A3", to: "A4" }],
+    );
 });
 
 test("a finished print is split at the layer the printer switched", async () => {

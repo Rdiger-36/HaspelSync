@@ -174,6 +174,11 @@ function createRuntimePrinter(entry) {
         // The slots the printer says the running print is taking its filaments
         // from, decoded from print.mapping. Null until a print reports them.
         currentMapping: null,
+        // Whether the running print has reported print.mapping, which an A1 or
+        // a P1 never does, and the slot it last printed from. Together they
+        // find a refill on those printers, see refillsFromActiveSlot() in gcode.js.
+        mappingReported: false,
+        printingSlot: null,
         // The AMS refills of the running print, each a filament the printer
         // moved to another slot mid print, with the layer and the spool it
         // left. See refillsBetween() in gcode.js.

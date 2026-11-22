@@ -20,7 +20,7 @@ import {
     setSpoolArchived,
     logSpoolmanFailure,
 } from "./spoolman.js";
-import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
+import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, refillsFromActiveSlot, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { getMapping, getMappings, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
 import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, rememberFilamentSpools, recallFilamentSpools } from "./printstate.js";
@@ -717,6 +717,8 @@ export async function handlePrintStateChange(printer, print) {
         printer.sliceFetchInFlight = null;
         printer.currentMapping    = null;
         printer.refills           = [];
+        printer.mappingReported   = false;
+        printer.printingSlot      = null;
         printer.printSlotSpools   = {};
         printer.filamentSpools    = {};
         printer.consumptionBooked = false;
@@ -897,23 +899,32 @@ export async function handlePrintStateChange(printer, print) {
     if (ACTIVE_STATES.has(newState)) {
         let slotsChanged = rememberPrintSlotSpools(printer);
         const reported = decodePrintMapping(print.mapping);
+        if (reported) printer.mappingReported = true;
         if (reported && JSON.stringify(reported) !== JSON.stringify(printer.currentMapping)) {
             for (const refill of refillsBetween(printer.currentMapping, reported, layerNum)) {
-                const spool = printer.printSlotSpools?.[refill.from] ?? null;
-                (printer.refills ||= []).push({ ...refill, layer: layerNum });
-                // The mapping was restored from before a restart and the
-                // printer moved on while nobody was listening, so the switch
-                // happened somewhere in the layers that went unseen
-                const unseen = printer.mappingRestored
-                    ? `, while the service was not running: the switch is taken as this layer, the first one seen since, so ${refill.from} carries the layers in between`
-                    : "";
-                console.log(printer.name, printer.logFilePath,
-                    `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill${unseen}: layers 1 to ${layerNum - 1} go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
+                noteRefill(printer, refill, layerNum);
             }
             printer.currentMapping = reported;
             slotsChanged = true;
             console.log(printer.name, printer.logFilePath, `[Print] The printer reports its slots as ${JSON.stringify(reported)}`);
         }
+        // An A1 or a P1 never reports print.mapping, so its refill shows only
+        // as the printing slot moving off the job, see refillsFromActiveSlot().
+        // A printer that names its slot through snow reports the mapping as
+        // well, and a delta report after a restart must not make it look
+        // like one that does not.
+        const printing = printer.activeSlot;
+        if (!printer.mappingReported && !printer.activeSlotFromSnow) {
+            const moved = refillsFromActiveSlot(printer.currentMapping, printer.printingSlot, printing, layerNum);
+            if (moved.length) {
+                for (const refill of moved) noteRefill(printer, refill, layerNum);
+                printer.currentMapping = printer.currentMapping.map(slot => slot === moved[0].from ? moved[0].to : slot);
+                slotsChanged = true;
+                console.log(printer.name, printer.logFilePath,
+                    `[Print] The printer prints from ${printing} now, which the job was not sent to, so its slots are ${JSON.stringify(printer.currentMapping)}`);
+            }
+        }
+        if (printing) printer.printingSlot = printing;
         printer.mappingRestored = false;
         if (slotsChanged) {
             rememberPrintSlots(printer.id, { mapping: printer.currentMapping, refills: printer.refills, slotSpools: printer.printSlotSpools });
@@ -1296,6 +1307,27 @@ async function archiveWhenEmpty(printer, spool) {
         console.error(printer.name, printer.logFilePath, `    Failed to archive empty Spool-ID ${spool.id}:`, err.message);
         return false;
     }
+}
+
+/**
+ * Records one AMS refill of the running print and logs which spool the layers
+ * before it go to.
+ *
+ * @param {object} printer - the runtime printer
+ * @param {{index: number, from: string, to: string}} refill - from refillsBetween() or refillsFromActiveSlot()
+ * @param {number} layerNum - the layer the printer reported the switch at
+ */
+function noteRefill(printer, refill, layerNum) {
+    const spool = printer.printSlotSpools?.[refill.from] ?? null;
+    (printer.refills ||= []).push({ ...refill, layer: layerNum });
+    // The mapping was restored from before a restart and the printer moved on
+    // while nobody was listening, so the switch happened somewhere in the
+    // layers that went unseen
+    const unseen = printer.mappingRestored
+        ? `, while the service was not running: the switch is taken as this layer, the first one seen since, so ${refill.from} carries the layers in between`
+        : "";
+    console.log(printer.name, printer.logFilePath,
+        `[Print] Filament ${refill.index + 1} moved from ${refill.from} to ${refill.to} at layer ${layerNum}, an AMS refill${unseen}: layers 1 to ${layerNum - 1} go to ${spool ? `spool ${spool.id}` : `${refill.from}, which held no known spool`}`);
 }
 
 /**

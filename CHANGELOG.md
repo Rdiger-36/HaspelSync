@@ -1,4 +1,10 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A filament printed from a slot without an assigned or tag linked spool is no longer booked on another spool of the same filament. When the printer or Bambu Studio names the slot a filament runs from, that slot is the only one considered: without a spool to book on, the filament is skipped and the print summary asks for an assignment. Before, the service looked for another slot with the same profile and colour and booked the grams there, so with two identical spools loaded and only one assigned, the assigned one was charged for what the other printed (issue #273)
+      - The log line and the print summary name the slot the booked spool sits in. Where the service had to find the spool by colour, they named the slot the filament was estimated to come from, which made it look as if the spool sat there (issue #273)
+
+-----------------------------------------------------------------------------------------------
 Version 1.4.0-dev.1
    - Breaking:
       - The image runs as the unprivileged user `node`, uid and gid 1000, instead of root, and nothing in the container runs as root any more, `docker exec` and `debug-printers` included. A compromised service can no longer act as root inside the container (issue #267)

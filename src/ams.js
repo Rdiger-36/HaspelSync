@@ -873,6 +873,14 @@ export function slotConfirmsSlice(candidate, info) {
  * claimed the same amount, which the dashboard showed on both rows and the
  * booking would have written onto the wrong spool.
  *
+ * A filament whose slot the printer named never reaches the fallback stages.
+ * They exist for prints where nobody says where a filament came from. Where
+ * the printer says it, a slot without a bookable spool is an answer, not a gap
+ * to fill: issue #273 printed white from an unassigned A3 while an identical
+ * white spool sat assigned in A1, and the colour stage booked the grams onto
+ * A1, a spool the print never touched. The filament now stays unplaced and the
+ * summary asks for an assignment.
+ *
  * Within a stage, manually assigned spools win over tag connected ones: an
  * assignment is the user explicitly resolving what the automatic match cannot,
  * namely two connected spools identical in both profile and colour.
@@ -901,13 +909,18 @@ export function matchConsumption(entries, candidates) {
         const wantedKey    = consumptionKey(info.tray_info_idx, info.color, info.colors);
         const wantedMatKey = materialKey(info.type, info.color);
 
-        let matches = [];
-        for (const [pool, predicate] of [
+        const reported = info.amsIdFromPrinter && !!info.amsId;
+        const stages = [
             [candidates, c => !!info.amsId && c.amsId === info.amsId && (info.amsIdFromPrinter || slotConfirmsSlice(c, info))],
             [unclaimed,  c => c.key === wantedKey],
             [unclaimed,  c => c.matKey === wantedMatKey],
             [unclaimed,  c => c.idx && c.idx === info.tray_info_idx && perProfile[info.tray_info_idx] === 1],
-        ]) {
+        ];
+
+        let matches = [];
+        // A slot the printer named is the only one the filament can come from
+        // (issue #273), so the colour stages are never asked for it.
+        for (const [pool, predicate] of reported ? stages.slice(0, 1) : stages) {
             matches = pool.filter(predicate);
             if (matches.length) break;
         }

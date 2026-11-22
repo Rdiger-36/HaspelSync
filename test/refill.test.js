@@ -148,8 +148,10 @@ test("a print that ends while the tube empties books on the spool the emptied sl
     const loaded = consumptionCandidate({ amsId: "A4", slot, existingSpool: { id: 6 }, connectedViaTag: true });
     const printer = { currentMapping: [null, null, "A3"], refills: [], printSlotSpools: { A3: remembered, A4: loaded } };
 
-    // Without the remembered spool the colour stages land on the backup
-    assert.equal(matchConsumption(entries, [loaded]).get(entries[0])?.[0]?.id, 6);
+    // Without the remembered spool nothing is booked: the colour stages once
+    // landed on the backup, and a slot the printer named never reaches them
+    // since issue #273
+    assert.deepEqual(matchConsumption(entries, [loaded]).get(entries[0]), []);
 
     const added = rememberedSlotCandidates(printer, [loaded]);
     assert.deepEqual(added.map(c => c.id), [5]);

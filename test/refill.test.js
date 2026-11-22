@@ -84,27 +84,27 @@ test("an A1 that switches the printing slot to one the job does not use refilled
     const refills = [];
     for (const [trayNow, layer] of A1_TRAY_NOW) {
         const slot = activeSlotFromReport({ ams: { tray_now: String(trayNow) } }).slot;
-        for (const refill of refillsFromActiveSlot(mapping, printing, slot, layer)) refills.push({ ...refill, layer });
+        for (const refill of refillsFromActiveSlot(mapping, printing, slot)) refills.push({ ...refill, layer });
         if (slot) printing = slot;
     }
     assert.deepEqual(refills, [{ index: 0, from: "A3", to: "A1", layer: 9 }]);
 });
 
 test("a colour change onto a slot of the job is not a refill", () => {
-    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A1", "A2", 12), []);
-    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A2", "A1", 13), []);
+    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A1", "A2"), []);
+    assert.deepEqual(refillsFromActiveSlot(["A1", "A2"], "A2", "A1"), []);
 });
 
-test("a slot change before the first layer, or without a slot on either side, is not a refill", () => {
-    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", "A1", 0), []);
-    assert.deepEqual(refillsFromActiveSlot(["A3"], null, "A3", 5), []);
-    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", null, 5), []);
-    assert.deepEqual(refillsFromActiveSlot(null, "A3", "A1", 5), []);
+test("a slot change without a slot on either side, or without a job, moves nothing", () => {
+    assert.deepEqual(refillsFromActiveSlot(["A3"], null, "A3"), []);
+    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", null), []);
+    assert.deepEqual(refillsFromActiveSlot(["A3"], "A3", "A3"), []);
+    assert.deepEqual(refillsFromActiveSlot(null, "A3", "A1"), []);
 });
 
 test("every filament that ran from the emptied slot moves with it", () => {
     assert.deepEqual(
-        refillsFromActiveSlot(["A3", "A2", "A3"], "A3", "A4", 20),
+        refillsFromActiveSlot(["A3", "A2", "A3"], "A3", "A4"),
         [{ index: 0, from: "A3", to: "A4" }, { index: 2, from: "A3", to: "A4" }],
     );
 });

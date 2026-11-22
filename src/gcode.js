@@ -1523,14 +1523,18 @@ export function refillsBetween(previous, reported, layerNum) {
  * of those changes and is not seen. Every filament that ran from the old slot
  * moves with it.
  *
+ * The layer is not checked here. A move before the first layer, a spool that
+ * ran out while the job loaded or purged, still names the slot the print
+ * runs from, it just moves nothing that was printed. The caller takes it into
+ * the mapping and records a refill only from the first layer on.
+ *
  * @param {(string|null)[]|null} mapping - the slots of the job, as the echo or a refill before left them
  * @param {string|null} from - the slot that printed before
  * @param {string|null} to - the slot that prints now
- * @param {number} layerNum - `layer_num` as the printer reports it, 1 for the first layer
  * @returns {{index: number, from: string, to: string}[]} one entry per filament that moved
  */
-export function refillsFromActiveSlot(mapping, from, to, layerNum) {
-    if (!mapping || !from || !to || from === to || !(layerNum >= 1)) return [];
+export function refillsFromActiveSlot(mapping, from, to) {
+    if (!mapping || !from || !to || from === to) return [];
     if (mapping.includes(to)) return [];
     const moved = [];
     mapping.forEach((slot, index) => {

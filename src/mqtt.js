@@ -531,7 +531,9 @@ const PRINT_DELTA_FIELDS = [
 export function deltaAsReport(printer, print) {
     if (!print || typeof print !== "object" || print.gcode_state) return null;
     if (!printer.stateSeenSinceStart || !printer.currentGcodeState) return null;
-    if (!PRINT_DELTA_FIELDS.some(field => print[field] !== undefined)) return null;
+    // tray_now as well: an A1 sends the slot it switched to in a delta of its
+    // own, and a refill there is seen only through it (issue #273)
+    if (!PRINT_DELTA_FIELDS.some(field => print[field] !== undefined) && print.ams?.tray_now === undefined) return null;
     return { ...print, gcode_state: printer.currentGcodeState };
 }
 
@@ -915,13 +917,17 @@ export async function handlePrintStateChange(printer, print) {
         // like one that does not.
         const printing = printer.activeSlot;
         if (!printer.mappingReported && !printer.activeSlotFromSnow) {
-            const moved = refillsFromActiveSlot(printer.currentMapping, printer.printingSlot, printing, layerNum);
+            const moved = refillsFromActiveSlot(printer.currentMapping, printer.printingSlot, printing);
             if (moved.length) {
-                for (const refill of moved) noteRefill(printer, refill, layerNum);
+                // Before the first layer nothing was printed from the old
+                // slot, so the job simply runs from the new one
+                if (layerNum >= 1) {
+                    for (const refill of moved) noteRefill(printer, refill, layerNum);
+                }
                 printer.currentMapping = printer.currentMapping.map(slot => slot === moved[0].from ? moved[0].to : slot);
                 slotsChanged = true;
                 console.log(printer.name, printer.logFilePath,
-                    `[Print] The printer prints from ${printing} now, which the job was not sent to, so its slots are ${JSON.stringify(printer.currentMapping)}`);
+                    `[Print] The printer prints from ${printing} now${layerNum >= 1 ? "" : ", before the first layer"}, which the job was not sent to, so its slots are ${JSON.stringify(printer.currentMapping)}`);
             }
         }
         if (printing) printer.printingSlot = printing;

@@ -6,7 +6,7 @@ import path from "path";
 
 // The module reads its path from config.js at import time, so DATA_DIR has to
 // point at a throwaway directory before the first import.
-let dir, printStatePath, rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, handlePrintStateChange, deltaAsReport, runningPrint;
+let dir, printStatePath, rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, handlePrintStateChange, deltaAsReport, noteActiveSlot, runningPrint;
 
 before(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "ams-printstate-"));
@@ -17,7 +17,7 @@ before(async () => {
 
     ({ printStatePath } = await import("../src/config.js"));
     ({ rememberPrintStart, recallPrintStart, forgetPrintStart, resetPrintStateForTests, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots } = await import("../src/printstate.js"));
-    ({ handlePrintStateChange, deltaAsReport, runningPrint } = await import("../src/mqtt.js"));
+    ({ handlePrintStateChange, deltaAsReport, noteActiveSlot, runningPrint } = await import("../src/mqtt.js"));
 });
 
 after(() => { fs.removeSync(dir); });
@@ -229,6 +229,50 @@ test("a delta ahead of the first report with a state is dropped, so the restart 
     assert.equal(deltaAsReport(p, { layer_num: 7 }), null);
     await handlePrintStateChange(p, { gcode_state: "RUNNING", subtask_name: "Cube", layer_num: 7 });
     assert.equal(p.currentLayerNum, 7);
+    forgetPrintStart("SERIAL");
+});
+
+// The A1 of issue #273 sends no print.mapping and the slot it prints from in
+// deltas of their own, which is where its refill shows. Each report goes
+// through what handleMqttMessage() does with it.
+async function a1Report(p, print) {
+    noteActiveSlot(p, print);
+    await handlePrintStateChange(p, print.gcode_state ? print : deltaAsReport(p, print));
+}
+
+test("an A1 refill reported in a delta moves the job at the layer it happened", async () => {
+    const p = printer({ pendingMapping: { slots: ["A3"], jobName: "Cube" }, printSlotSpools: {} });
+    await a1Report(p, { gcode_state: "IDLE", ams: { tray_now: "255" } });
+    await a1Report(p, { gcode_state: "RUNNING", subtask_name: "Cube", layer_num: 0 });
+    await a1Report(p, { ams: { tray_now: "2" } });
+    await a1Report(p, { layer_num: 9 });
+    await a1Report(p, { ams: { tray_now: "0" } });
+    assert.deepEqual(p.currentMapping, ["A1"]);
+    assert.deepEqual(p.refills, [{ index: 0, from: "A3", to: "A1", layer: 9 }]);
+    // Unloading at the end names no slot and moves nothing
+    await a1Report(p, { ams: { tray_now: "255" } });
+    assert.deepEqual(p.currentMapping, ["A1"]);
+    forgetPrintStart("SERIAL");
+});
+
+test("an A1 that switches the slot before the first layer runs the job from the new one", async () => {
+    const p = printer({ pendingMapping: { slots: ["A3"], jobName: "Cube" }, printSlotSpools: {} });
+    await a1Report(p, { gcode_state: "IDLE", ams: { tray_now: "255" } });
+    await a1Report(p, { gcode_state: "RUNNING", subtask_name: "Cube", layer_num: 0 });
+    await a1Report(p, { ams: { tray_now: "2" } });
+    await a1Report(p, { ams: { tray_now: "0" } });
+    assert.deepEqual(p.currentMapping, ["A1"]);
+    assert.deepEqual(p.refills, []);
+    forgetPrintStart("SERIAL");
+});
+
+test("a printer that reports print.mapping is not read through tray_now", async () => {
+    const p = printer({ printSlotSpools: {} });
+    await a1Report(p, { gcode_state: "IDLE", ams: { tray_now: "255" } });
+    await a1Report(p, { gcode_state: "RUNNING", subtask_name: "Cube", layer_num: 3, mapping: [2], ams: { tray_now: "2" } });
+    await a1Report(p, { ams: { tray_now: "0" } });
+    assert.deepEqual(p.currentMapping, ["A3"]);
+    assert.deepEqual(p.refills, []);
     forgetPrintStart("SERIAL");
 });
 

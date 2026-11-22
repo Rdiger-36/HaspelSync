@@ -416,6 +416,7 @@ I18N.register("en", "English", {
     "dashboard.table.bookedGrams": "booked: {grams}g",
     "dashboard.table.needed": "Needed",
     "dashboard.table.noSpools": "No spools loaded",
+    "dashboard.table.notBookedGrams": "not booked: {grams}g",
     "dashboard.table.onSpool": "On spool / total",
     "dashboard.table.printedGrams": "printed: {grams}g",
     "dashboard.table.ranOut": "Ran out during this print",

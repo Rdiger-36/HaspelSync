@@ -3386,8 +3386,16 @@ document.addEventListener("DOMContentLoaded", () => {
         // holder they ran from. Their grams are on these rows, not on the slot's.
         const holderFilaments = {};
         for (const filament of printData.holderFilaments || []) (holderFilaments[filament.amsId] ||= []).push(filament);
+        // The slots a spool was booked in, as the booking reported them. That a
+        // print was booked says nothing about a single row: a slot with no spool
+        // to book on showed "booked" next to "not tracked" (issue #273). Null
+        // where no report is at hand, and every row then reads as before.
+        const summaryRows = printData.lastPrintSummary?.rows;
+        const bookedSlots = summaryRows?.length
+            ? new Set(summaryRows.filter(row => row.status === "booked" || row.status === "ambiguous").map(row => row.amsId))
+            : null;
         const printing = ACTIVE_PRINT_STATES.includes(printData.gcodeState);
-        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, usedKnown, emptied, bookedRemaining, holderFilaments, printing };
+        const ctx = { fullCons, partCons, keyCount: countSpoolKeys(spools), showBooking: true, booked, bookedSlots, usedKnown, emptied, bookedRemaining, holderFilaments, printing };
 
         const columns = [
             [t("dashboard.table.spool"), "left"],
@@ -3483,7 +3491,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let neededCell     = "—";
         let afterPrintCell = "—";
-        if (needed > 0 && booked) {
+        if (needed > 0 && booked && ctx.bookedSlots && !ctx.bookedSlots.has(amsSpool.amsId)) {
+            // The print is over and nothing was booked from this slot, so no
+            // spool weight carries it and there is nothing to show after it
+            neededCell = `${needed}g<br><span class="gc-muted" style="font-size:0.8em;white-space:nowrap">${escapeHtml(t("dashboard.table.notBookedGrams", { grams: usedKnown ? used : needed }))}</span>`;
+        } else if (needed > 0 && booked) {
             // The print is over and booked: what it used is the figure, and the
             // spool's weight above already has it taken off. `used || needed`
             // stood here and showed the whole plate as booked for a print

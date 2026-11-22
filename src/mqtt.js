@@ -1643,7 +1643,7 @@ async function bookConsumption(printer, consumption, state) {
         const ambiguous = matches.length > 1
             ? `${matches.length} spools were indistinguishable; the full amount went to this one.`
             : null;
-        rows.push(await bookFilamentOnSpool(printer, info, matches[0].id, { mapped: !!matches[0].mapped, ambiguous }, lastUsed));
+        rows.push(await bookFilamentOnSpool(printer, info, matches[0].id, { mapped: !!matches[0].mapped, ambiguous, slot: matches[0].amsId }, lastUsed));
     }
 
     return { rows, note: null };
@@ -1662,18 +1662,26 @@ const HOLDER_PENDING_NOTE = "Several filaments of this print ran from the extern
  * @param {object} printer - the runtime printer
  * @param {object} info - one entry of a consumption map
  * @param {number} spoolId - the Spoolman spool to book on
- * @param {{mapped: boolean, ambiguous?: string|null}} how - whether the user
- *   named the spool, and the note for a booking that had to pick one of several
+ * @param {{mapped: boolean, ambiguous?: string|null, slot?: string|null}} how -
+ *   whether the user named the spool, the note for a booking that had to pick
+ *   one of several, and the slot the spool sits in where the matcher found it
+ *   somewhere other than where the slice put the filament
  * @param {string} lastUsed - ISO timestamp for the spool's `last_used`
  * @returns {Promise<object>} the summary row, booked or failed
  */
-async function bookFilamentOnSpool(printer, info, spoolId, { mapped, ambiguous = null }, lastUsed) {
+async function bookFilamentOnSpool(printer, info, spoolId, { mapped, ambiguous = null, slot = null }, lastUsed) {
     const { tray_info_idx: idx, color, type, grams } = info;
+    // The slot the booked spool sits in. An estimated slot the colour stages
+    // overruled is not where the spool was, and naming it next to the spool
+    // made the log and the summary claim a spool sat in a slot it never did
+    // (issue #273).
+    const amsId = slot ?? info.amsId;
     try {
         const booked = await useSpoolWeight(spoolId, grams, lastUsed);
-        console.log(printer.name, printer.logFilePath, `[Print] Booked ${grams}g for spool ${spoolId} (${info.amsId}, ${idx} ${type} ${color}${info.holderSwap ? `, filament ${info.index + 1}, named for it` : mapped ? ", manually assigned" : ""})`);
+        console.log(printer.name, printer.logFilePath, `[Print] Booked ${grams}g for spool ${spoolId} (${amsId}, ${idx} ${type} ${color}${info.holderSwap ? `, filament ${info.index + 1}, named for it` : mapped ? ", manually assigned" : ""})`);
         const row = {
             ...summaryRow(printer, info, ambiguous ? "ambiguous" : "booked", ambiguous ?? refillNote(info)),
+            amsId,
             spoolId,
             // The three fields the dashboard names a filament by. Taken
             // from the record the booking wrote, so the summary keeps
@@ -1692,6 +1700,7 @@ async function bookFilamentOnSpool(printer, info, spoolId, { mapped, ambiguous =
         console.error(printer.name, printer.logFilePath, `[Print] Failed to book consumption for spool ${spoolId}: ${err.message}`);
         return {
             ...summaryRow(printer, info, "failed", `Spoolman refused the booking: ${err.message}`),
+            amsId,
             spoolId,
             mapped,
         };

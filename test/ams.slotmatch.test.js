@@ -152,6 +152,22 @@ test("a slot the printer named for one filament is not claimed by another", () =
     assert.deepEqual(matched.get(other).map(c => c.amsId), ["A1"]);
 });
 
+test("a slot the printer named without a bookable spool books nothing elsewhere", () => {
+    // Issue #273: white printed from A3, which had no spool assigned, while an
+    // identical white spool sat assigned in A1. The colour stage booked the
+    // grams onto A1. The booking only offers bookable slots, so A3 is absent.
+    const white = filament(0, { idx: "GFSNL04", color: "#FFFFFF", amsId: "A3", fromPrinter: true });
+    const teal  = filament(1, { idx: "GFSNL03", color: "#408080", amsId: "A2", fromPrinter: true });
+    const slots = [
+        spool("A1", { id: 2, idx: "GFSNL04", color: "FFFFFF", mapped: true }),
+        spool("A2", { id: 1, idx: "GFSNL03", color: "408080", mapped: true }),
+    ];
+
+    const matched = matchConsumption([white, teal], slots);
+    assert.deepEqual(matched.get(white), []);
+    assert.equal(matched.get(teal)[0].amsId, "A2");
+});
+
 test("the filament identity stage separates a gradient spool from the plain one", () => {
     // The stage was dead: the map is keyed by the position of the filament, and
     // the browser copy looked the key up in it instead of comparing entry by

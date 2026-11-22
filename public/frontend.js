@@ -3494,7 +3494,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (needed > 0 && booked && ctx.bookedSlots && !ctx.bookedSlots.has(amsSpool.amsId)) {
             // The print is over and nothing was booked from this slot, so no
             // spool weight carries it and there is nothing to show after it
-            neededCell = `${needed}g<br><span class="gc-muted" style="font-size:0.8em">${escapeHtml(t("dashboard.table.notBookedGrams", { grams: usedKnown ? used : needed }))}</span>`;
+            neededCell = `${needed}g<br><span class="gc-muted" style="font-size:0.8em;white-space:nowrap">${escapeHtml(t("dashboard.table.notBookedGrams", { grams: usedKnown ? used : needed }))}</span>`;
         } else if (needed > 0 && booked) {
             // The print is over and booked: what it used is the figure, and the
             // spool's weight above already has it taken off. `used || needed`

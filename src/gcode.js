@@ -1505,6 +1505,45 @@ export function refillsBetween(previous, reported, layerNum) {
 }
 
 /**
+ * The slots a print moved to when the slot that prints changed, for a printer
+ * that never reports `print.mapping`: an AMS refill on an A1 or a P1.
+ *
+ * These printers name the slots of a job only once, in the `project_file`
+ * echo before the start, and that echo does not change when the AMS takes
+ * over from another slot. Traced on an A1 with an AMS Lite in issue #273:
+ * A3 ran out at layer 3 and left the tray bits, the filament in the tube
+ * printed on, and at layer 9 `tray_now` went from 2 to 0, A3 to A1, with the
+ * state RUNNING throughout and A1 printing to the end. Unlike the P2S that
+ * `refillsBetween()` documents, the A1 kept `tray_now` on A3 while the tube
+ * emptied, so the change marks the switch itself.
+ *
+ * Only a move to a slot the job does not use counts. A multicolour print
+ * changes the printing slot at every colour change, always to a slot of the
+ * job. A refill onto a slot the job also prints from looks exactly like one
+ * of those changes and is not seen. Every filament that ran from the old slot
+ * moves with it.
+ *
+ * The layer is not checked here. A move before the first layer, a spool that
+ * ran out while the job loaded or purged, still names the slot the print
+ * runs from, it just moves nothing that was printed. The caller takes it into
+ * the mapping and records a refill only from the first layer on.
+ *
+ * @param {(string|null)[]|null} mapping - the slots of the job, as the echo or a refill before left them
+ * @param {string|null} from - the slot that printed before
+ * @param {string|null} to - the slot that prints now
+ * @returns {{index: number, from: string, to: string}[]} one entry per filament that moved
+ */
+export function refillsFromActiveSlot(mapping, from, to) {
+    if (!mapping || !from || !to || from === to) return [];
+    if (mapping.includes(to)) return [];
+    const moved = [];
+    mapping.forEach((slot, index) => {
+        if (slot === from) moved.push({ index, from, to });
+    });
+    return moved;
+}
+
+/**
  * Splits the filaments of a consumption map at the refills the print went
  * through, so each spool is booked what came out of it.
  *

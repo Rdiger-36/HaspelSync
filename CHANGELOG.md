@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - An AMS refill on an A1 or a P1 is booked on both spools. These printers never report which slot a running print takes its filament from, only the slots Bambu Studio sent the job to, so when the AMS switched to another slot of the same filament, the whole print was booked on the spool that ran out. The switch is now read from the slot the printer prints from: when it moves to a slot the job was not sent to while the print runs, the spool that ran out gets the layers before it and the spool in the new slot the rest, the same way a refill on the other printers is split. A switch before the first layer, a spool found empty while the job loads, books the whole print on the new slot. A refill onto a slot the same job prints other parts from cannot be told apart from a colour change and is still booked whole on the spool that ran out (issue #273)
+
+-----------------------------------------------------------------------------------------------
 Version 1.4.0-dev.2
    - Fixes:
       - A filament printed from a slot without an assigned or tag linked spool is no longer booked on another spool of the same filament. When the printer or Bambu Studio names the slot a filament runs from, that slot is the only one considered: without a spool to book on, the filament is skipped and the print summary asks for an assignment. Before, the service looked for another slot with the same profile and colour and booked the grams there, so with two identical spools loaded and only one assigned, the assigned one was charged for what the other printed (issue #273)

@@ -413,6 +413,7 @@ I18N.register("de", "Deutsch", {
     "dashboard.table.bookedGrams": "gebucht: {grams}g",
     "dashboard.table.needed": "Benötigt",
     "dashboard.table.noSpools": "Keine Spulen geladen",
+    "dashboard.table.notBookedGrams": "nicht gebucht: {grams}g",
     "dashboard.table.onSpool": "Auf Spule / gesamt",
     "dashboard.table.printedGrams": "gedruckt: {grams}g",
     "dashboard.table.ranOut": "Während des Drucks leer gelaufen",

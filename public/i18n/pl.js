@@ -413,6 +413,7 @@ I18N.register("pl", "Polski", {
     "dashboard.table.bookedGrams": "zapisano: {grams} g",
     "dashboard.table.needed": "Potrzeba",
     "dashboard.table.noSpools": "Brak załadowanych szpul",
+    "dashboard.table.notBookedGrams": "nie zapisano: {grams} g",
     "dashboard.table.onSpool": "Na szpuli / łącznie",
     "dashboard.table.printedGrams": "wydrukowano: {grams} g",
     "dashboard.table.ranOut": "Skończył się podczas drukowania",

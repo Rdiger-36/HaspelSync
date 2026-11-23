@@ -436,6 +436,31 @@ test("findMatchingExternalFilament takes the Basic line over the ones that sort 
     assert.equal(findMatchingExternalFilament(slot("PLA Basic", "8E9089FF"), catalogue).name, "Gray");
 });
 
+test("findMatchingExternalFilament keeps an opaque spool off a translucent entry", () => {
+    // The white PETG entries as SpoolmanDB lists them (issue #278). There is
+    // no Basic line for PETG, "Clear" and "White" are equally long, and
+    // "Clear" sorts first, so a white Basic spool was created as Clear.
+    const catalogue = [
+        { id: "bambulab_petg_clear_1000_175_n", name: "Clear", material: "PETG", color_hex: "FFFFFF", translucent: true },
+        { id: "bambulab_petg_hfblack_1000_175_n", name: "HF Black", material: "PETG", color_hex: "000000", translucent: false },
+        { id: "bambulab_petg_hfwhite_1000_175_n", name: "HF White", material: "PETG", color_hex: "FFFFFF", translucent: false },
+        { id: "bambulab_petg_matteblack_1000_175_n", name: "Matte Black", material: "PETG", color_hex: "000000", translucent: false },
+        { id: "bambulab_petg_mattewhite_1000_175_n", name: "Matte White", material: "PETG", color_hex: "FFFFFF", translucent: false },
+        { id: "bambulab_petg_translucentgray_1000_175_n", name: "Translucent Gray", material: "PETG", color_hex: "8E8E8E", translucent: true },
+        { id: "bambulab_petg_white_1000_175_n", name: "White", material: "PETG", color_hex: "FFFFFF", translucent: false },
+    ];
+    const slot = (subBrand, color) => ({ ...gildedRose, cols: [color], tray_color: color, tray_sub_brands: subBrand, tray_type: "PETG" });
+
+    assert.equal(findMatchingExternalFilament(slot("PETG Basic", "FFFFFFFF"), catalogue).name, "White");
+    // The translucent white reports 00000000, which processData turns into
+    // FFFFFF00, and it keeps getting Clear.
+    assert.equal(findMatchingExternalFilament(slot("PETG Translucent", "FFFFFF00"), catalogue).name, "Clear");
+    assert.equal(findMatchingExternalFilament(slot("PETG Translucent", "8E8E8EFF"), catalogue).name, "Translucent Gray");
+    // An entry of the other side is still better than none.
+    const clearOnly = catalogue.filter(filament => filament.name === "Clear");
+    assert.equal(findMatchingExternalFilament(slot("PETG Basic", "FFFFFFFF"), clearOnly).name, "Clear");
+});
+
 test("extractComparableTrayData sees a colour set change that tray_color misses", () => {
     // Two multi colour filaments sharing their first colour. Without `cols` the
     // projection is byte identical and the slot is never reprocessed, so the

@@ -530,6 +530,13 @@ export function findExistingSpool(amsSpool, allSpools) {
  * different colours, Aero, Lite, Matte, Silk+, names a line and not a colour.
  * The shortest name breaks what is left, and the catalogue order after that.
  *
+ * Before any of that, a slot keeps to its side of the `translucent` flag the
+ * catalogue carries. Bambu Lab names its translucent lines "Translucent", and
+ * a slot that does not is never matched to a translucent entry while an
+ * opaque one of the same colours is there. A white "PETG Basic" spool became
+ * PETG "Clear": the catalogue has no Basic line for PETG, "Clear" and "White"
+ * are equally long, and "Clear" sorts first (issue #278).
+ *
  * @param {object|null} amsSpool - a normalised AMS slot
  * @param {object[]} externalFilaments - the SpoolmanDB catalogue
  * @returns {object|null} the catalogue entry, or null
@@ -556,6 +563,7 @@ export function findMatchingExternalFilament(amsSpool, externalFilaments) {
     // The words after the material, as the ids write them: "PLA Basic" gives
     // "basic", "Support for PLA" gives "forpla".
     const line = subBrand.split(" ").slice(1).join("").replace(/[^A-Za-z]/g, "").toLowerCase();
+    const translucent = /translucent/i.test(subBrand);
 
     for (const [attempt, transform] of transformations.entries()) {
         const transformedMaterial = transform(subBrand);
@@ -563,8 +571,13 @@ export function findMatchingExternalFilament(amsSpool, externalFilaments) {
             ? `bambulab_${amsSpool.tray_type.split("-")[0].toLowerCase()}_${transformedMaterial}`
             : `bambulab_${transformedMaterial}`;
 
-        const candidates = externalFilaments.filter(filament => filament.id.startsWith(prefix) && sameColors(filament));
-        if (!candidates.length) continue;
+        const matching = externalFilaments.filter(filament => filament.id.startsWith(prefix) && sameColors(filament));
+        if (!matching.length) continue;
+
+        // A preference, not a filter: an entry of the other side is still
+        // better than no entry at all.
+        const sameSide = matching.filter(filament => Boolean(filament.translucent) === translucent);
+        const candidates = sameSide.length ? sameSide : matching;
         if (attempt < loosest) return candidates[0];
 
         const named = line && candidates.filter(filament => filament.id.includes(line));

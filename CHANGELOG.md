@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.4.0-dev.4
    - Fixes:
       - A spool that is not one of Bambu Lab's Translucent lines is no longer created as a translucent filament. A white PETG Basic spool became PETG "Clear": the filament catalogue has no Basic line for PETG, which leaves "White" and "Clear" with the same colour, and "Clear" won because it comes first. The catalogue marks its translucent entries, and a slot now keeps to its side as long as the catalogue has an entry of the same colour there. A Translucent spool still gets its translucent entry (issue #278)
 

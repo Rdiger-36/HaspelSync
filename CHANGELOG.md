@@ -1,4 +1,9 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A cloud print sent from Bambu Studio 2.9.2 or newer is booked again. Bambu Studio 2.9.2 sends a print to a printer bound to the cloud through the cloud first, and the printer then keeps the file in its internal storage, where FTPS cannot see it; the X1 series is affected as well, which kept every cloud print on its SD card before. The printer announces the job with the link it downloads it from, and when the file is not on the printer the service downloads it from that link, checked against the md5 Bambu Studio sent. The link is valid for an hour after the start and kept in printers/printstate.json, so a restart of the service within that hour still finds the file. When it cannot be used, the log says why after the usual "No sliced file on the printer" (issue #281)
+      - A printer without a USB stick or SD card no longer reads as "nothing will be booked": a cloud print is booked from its link without one. The print card, its help and the log say that only a cloud print can be booked until a stick is in (issue #281)
+-----------------------------------------------------------------------------------------------
 Version 1.4.0
    - Breaking:
       - The image runs as the unprivileged user `node`, uid and gid 1000, instead of root, and nothing in the container runs as root any more, `docker exec` and `debug-printers` included. A compromised service can no longer act as root inside the container (issue #267)

@@ -22,7 +22,7 @@ and `../starting.js`) or the Express app wiring itself (`../backend.js`).
 | `printers.js` | Loads and writes `printers/printers.json` (or seeds it from the `PRINTER_*` env vars), seeds the mutable per-printer runtime object, and owns add, update and remove. |
 | `mqtt.js` | The engine. Connection lifecycle, message handling, slot processing, print-state tracking, consumption booking, SSE broadcast, monitor loops. |
 | `ams.js` | Pure functions over AMS payloads: normalisation, change detection, spool matching, and `matchConsumption()`, the one decision about which sliced filament comes out of which slot. No I/O. |
-| `gcode.js` | FTPS fetch of the sliced 3MF, `slice_info.config` parsing, the per layer weight of every filament counted from the plate's G-code, consumption maths. |
+| `gcode.js` | FTPS fetch of the sliced 3MF, the download from the job's cloud link when the printer has no copy (`cloudFileLink()`), `slice_info.config` parsing, the per layer weight of every filament counted from the plate's G-code, consumption maths. |
 | `spoolman.js` | Every Spoolman HTTP call. No other module talks to Spoolman directly. |
 | `mappings.js` | Manual AMS-slot → Spoolman-spool assignments, persisted to `printers/mappings.json`. |
 | `presets.js` | The slicer preset names learned from the sliced file, keyed by the `P` hash a chipless slot reports as `tray_info_idx`, persisted to `printers/presets.json` and read once on first use. What turns "PLA · custom preset" into the preset's name and manufacturer. |
@@ -429,6 +429,14 @@ build their Spoolman payload from.
   in `handleMqttMessage()`, which refuses to process a report without Spoolman,
   and it is already there. Anywhere else it turns an unrelated outage into a
   second one.
+- **A cloud print is read from its link only when the printer has no copy.**
+  Bambu Studio 2.9.2 sends through the cloud first and the printer keeps the
+  job in internal storage (issue #281), so `fetchSliceInfo()` falls back to the
+  presigned url of the `project_file` echo after the names and the listing
+  found nothing, or when FTPS failed. The file must carry the echo's `md5`. The
+  url is signed: it goes to `printstate.json` for a restart within its hour,
+  never into a log line, and `lastSliceFetch.path` reads `CLOUD_FILE_PATH`
+  instead, which `ensureSliceInfo()` does not remember as an FTPS path.
 - **`printer.blockMqttUpdates` serialises message handling.** Messages arriving
   during processing are dropped, not queued.
 

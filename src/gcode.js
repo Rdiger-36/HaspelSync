@@ -61,11 +61,18 @@ function ftpsAccess(client, printer) {
  * printer's storage is listed and the file of the running print is picked by
  * its time and confirmed by its content, see `findSlicedFileByTime()`.
  *
+ * When the printer has no copy at all and the job came through the cloud, the
+ * file is downloaded from the link the printer was given, see
+ * `cloudFileLink()`. That is the last resort, not the first: the stick is on
+ * the LAN, the link expires after an hour, and a print sent by Bambu Studio
+ * 2.9.1 or older, or over the LAN, still lands on the stick. A printer that
+ * does not let us in does not stop it either, the link needs no printer.
+ *
  * @param {object} printer  - printer object with .ip and .code
  * @param {string} jobName  - subtask_name from MQTT
  * @param {string|null} [gcodeFile] - gcode_file from MQTT, when the report carries one
  * @param {string|null} [fileName] - the file name from the printer's own project_file command, see resolveRemotePaths()
- * @param {object|null} [running] - what the printer reports about the running print: `startedAt` in epoch milliseconds, `gcodeFile` and `totalLayers`, plus `filePath` when the process before a restart found the file; null leaves the listing out
+ * @param {object|null} [running] - what the printer reports about the running print: `startedAt` in epoch milliseconds, `gcodeFile` and `totalLayers`, plus `filePath` when the process before a restart found the file and `cloudFile` when the job came with a cloud link; null leaves the listing and the link out
  * @returns {object|null} parsed slice info or null if not found
  */
 export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileName = null, running = null) {
@@ -90,7 +97,9 @@ export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileNam
     const record = { jobName, attempt, beforeRunning: !counted, tried: candidates, reasons: {}, error: null, path: null, sliceInfo: false, at: Date.now() };
     printer.lastSliceFetch = record;
 
+    const cloudFile = running?.cloudFile ?? null;
     try {
+        let loggedIn = true;
         try {
             await ftpsAccess(client, printer);
         } catch (err) {
@@ -98,65 +107,36 @@ export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileNam
             // "not at any path", because that is a file missing and this is a
             // printer busy or unreachable, which a retry can outwait.
             record.error = err.message;
-            throw err;
-        }
-
-        debug("gcode", printer.name, printer.logFilePath,
-            `[Print] Looking for the sliced file as ${candidates.join(" or ")}`);
-
-        // The path remembered before a restart stays first, it was settled for
-        // this very print. The names are tried newest first: a job reprinted
-        // under its old name after the file was changed can leave the old copy
-        // in one place and the new one in the other, and the first name used
-        // to win whatever its age (issue #252).
-        const remembered = candidates.length > named.length ? [candidates[0]] : [];
-        const stamped = await stampCandidates(client, named);
-        const sorted = newestFirst(stamped);
-        const order = [...remembered, ...sorted.map(file => file.path)];
-        const present = sorted.filter(file => Number.isFinite(file.modifiedAt));
-        if (present.length > 1) {
-            console.log(printer.name, printer.logFilePath,
-                `[Print] The job's name is on ${present.length} files, reading the newest first: ${present.map(f => `${f.path} (${new Date(f.modifiedAt).toISOString()})`).join(", ")}`);
+            // A cloud print can still be read from its link, which needs no
+            // printer at all
+            if (!cloudFile) throw err;
+            loggedIn = false;
         }
 
         let buf = null;
-        for (const path of order) {
+        if (loggedIn) {
             try {
-                const chunks = [];
-                const writable = new Writable({
-                    write(chunk, _, cb) { chunks.push(chunk); cb(); },
-                });
-                await client.downloadTo(writable, path);
-                buf = Buffer.concat(chunks);
-                record.path = path;
-                debug("gcode", printer.name, printer.logFilePath,
-                    `[Print] Downloaded ${path}, ${buf.length} bytes`);
-                if (path === running?.filePath && !named.includes(path)) {
-                    console.log(printer.name, printer.logFilePath,
-                        `[Print] Sliced file read from where it was found before the restart: ${path}`);
-                }
-                break;
+                buf = await findOnPrinter(client, printer, candidates, named, { gcodeFile, running, record });
             } catch (err) {
-                // Trying the next candidate is the normal path, not a failure:
-                // where the file sits depends on how the job was sent. The
-                // reason is still worth having, because "no slice info" with
-                // every attempt silent is the hardest version of this to answer.
-                // Kept on the record as well, so the ordinary log can say it
-                // when every candidate fails: a 550 from a printer without a
-                // USB stick and a broken data connection read the same without.
-                record.reasons[path] = err.message;
-                debug("gcode", printer.name, printer.logFilePath,
-                    `[Print] Not at ${path}: ${err.message}`);
+                // A printer whose FTPS server stops answering halfway, which a
+                // P2S does (control socket timeouts), costs a cloud print nothing
+                if (!cloudFile) throw err;
+                record.error = err.message;
             }
         }
 
-        if (!buf && running?.startedAt) {
-            const found = await findSlicedFileByTime(client, printer, candidates, { gcodeFile, ...running }, record);
-            if (found) {
-                buf = found.buf;
-                record.path = found.path;
+        if (!buf && cloudFile) {
+            buf = await downloadCloudFile(printer, cloudFile, record);
+            if (buf) {
+                record.path = CLOUD_FILE_PATH;
+                record.cloud = true;
+                // Two different situations: the printer has no copy, or its
+                // FTPS server did not answer and nobody knows whether it has one
+                const why = record.error
+                    ? `The printer's FTPS failed (${record.error})`
+                    : "The sliced file is not on the printer";
                 console.log(printer.name, printer.logFilePath,
-                    `[Print] Sliced file found on the stick: ${found.path}, written ${describeOffset(found.modifiedAt - running.startedAt)} the start, ${found.reason}`);
+                    `[Print] ${why}, read it from the cloud link of the job instead, ${(buf.length / 1048576).toFixed(1)} MB`);
             }
         }
 
@@ -209,6 +189,193 @@ export async function fetchSliceInfo(printer, jobName, gcodeFile = null, fileNam
         return parsed;
     } finally {
         client.close();
+    }
+}
+
+/**
+ * Looks for the sliced file on the printer's storage over FTPS: under every
+ * name the job can have, then by listing, see `fetchSliceInfo()`.
+ *
+ * @param {object} client - the logged in basic-ftp client
+ * @param {object} printer - the printer, for the log
+ * @param {string[]} candidates - every path to try, the remembered one first
+ * @param {string[]} named - the paths built from the job's names
+ * @param {{gcodeFile: string|null, running: object|null, record: object}} context - see `fetchSliceInfo()`
+ * @returns {Promise<Buffer|null>} the whole 3MF, or null when none was found
+ */
+async function findOnPrinter(client, printer, candidates, named, { gcodeFile, running, record }) {
+    debug("gcode", printer.name, printer.logFilePath,
+        `[Print] Looking for the sliced file as ${candidates.join(" or ")}`);
+
+    // The path remembered before a restart stays first, it was settled for
+    // this very print. The names are tried newest first: a job reprinted
+    // under its old name after the file was changed can leave the old copy
+    // in one place and the new one in the other, and the first name used
+    // to win whatever its age (issue #252).
+    const remembered = candidates.length > named.length ? [candidates[0]] : [];
+    const stamped = await stampCandidates(client, named);
+    const sorted = newestFirst(stamped);
+    const order = [...remembered, ...sorted.map(file => file.path)];
+    const present = sorted.filter(file => Number.isFinite(file.modifiedAt));
+    if (present.length > 1) {
+        console.log(printer.name, printer.logFilePath,
+            `[Print] The job's name is on ${present.length} files, reading the newest first: ${present.map(f => `${f.path} (${new Date(f.modifiedAt).toISOString()})`).join(", ")}`);
+    }
+
+    let buf = null;
+    for (const path of order) {
+        try {
+            const chunks = [];
+            const writable = new Writable({
+                write(chunk, _, cb) { chunks.push(chunk); cb(); },
+            });
+            await client.downloadTo(writable, path);
+            buf = Buffer.concat(chunks);
+            record.path = path;
+            debug("gcode", printer.name, printer.logFilePath,
+                `[Print] Downloaded ${path}, ${buf.length} bytes`);
+            if (path === running?.filePath && !named.includes(path)) {
+                console.log(printer.name, printer.logFilePath,
+                    `[Print] Sliced file read from where it was found before the restart: ${path}`);
+            }
+            break;
+        } catch (err) {
+            // Trying the next candidate is the normal path, not a failure:
+            // where the file sits depends on how the job was sent. The
+            // reason is still worth having, because "no slice info" with
+            // every attempt silent is the hardest version of this to answer.
+            // Kept on the record as well, so the ordinary log can say it
+            // when every candidate fails: a 550 from a printer without a
+            // USB stick and a broken data connection read the same without.
+            record.reasons[path] = err.message;
+            debug("gcode", printer.name, printer.logFilePath,
+                `[Print] Not at ${path}: ${err.message}`);
+        }
+    }
+
+    if (!buf && running?.startedAt) {
+        const found = await findSlicedFileByTime(client, printer, candidates, { gcodeFile, ...running }, record);
+        if (found) {
+            buf = found.buf;
+            record.path = found.path;
+            console.log(printer.name, printer.logFilePath,
+                `[Print] Sliced file found on the stick: ${found.path}, written ${describeOffset(found.modifiedAt - running.startedAt)} the start, ${found.reason}`);
+        }
+    }
+
+    return buf;
+}
+
+/**
+ * The label `lastSliceFetch.path` carries for a file read from the job's cloud
+ * link rather than from the printer. Never an FTPS path, so it is never
+ * remembered as one, see `ensureSliceInfo()` in mqtt.js.
+ */
+export const CLOUD_FILE_PATH = "the cloud download";
+
+/**
+ * How long the download of a sliced file from its cloud link may take. A 3MF
+ * with a long print's G-code runs to a hundred megabytes and more.
+ */
+const CLOUD_DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * The cloud link a `project_file` command downloads its job from, when it
+ * names one.
+ *
+ * Bambu Studio 2.9.2 sends every print to a printer bound to the cloud through
+ * the cloud first and over the LAN only when that fails (commit 43be6be, issue
+ * #281). Up to 2.9.1 it uploaded the file to the stick over FTPS first. The
+ * printer now downloads the job into its internal storage and the stick never
+ * sees it, so the names and the listing find nothing. The command carries the
+ * link the printer downloads from: a presigned S3 url, signed for `host`
+ * alone, valid for `X-Amz-Expires` seconds from `X-Amz-Date`. Measured on a P2S
+ * on 2026-11-25: one hour, signed a second before the echo, and a plain GET
+ * without any header returned the whole 3MF, whose md5 was the command's `md5`.
+ *
+ * A LAN print names an `ftp://` object and a print started on the printer's
+ * screen a `file://` one, neither of which is a link to fetch.
+ *
+ * @param {unknown} url - the `url` of the command
+ * @returns {{url: string, expiresAt: number|null}|null} the link, with its expiry in epoch milliseconds when the url says
+ */
+export function cloudFileLink(url) {
+    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return null;
+    }
+    const signedAt = parseAmzDate(parsed.searchParams.get("X-Amz-Date"));
+    const seconds = Number(parsed.searchParams.get("X-Amz-Expires"));
+    const expiresAt = signedAt != null && Number.isFinite(seconds) && seconds > 0 ? signedAt + seconds * 1000 : null;
+    return { url, expiresAt };
+}
+
+/** An S3 `X-Amz-Date`, "20261125T191116Z", as epoch milliseconds, or null. */
+function parseAmzDate(text) {
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(text || "");
+    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])) : null;
+}
+
+/**
+ * Whether a cloud link may still be fetched. A link whose expiry the url does
+ * not say is tried: the cloud's answer is what decides then.
+ *
+ * @param {{url: string, expiresAt: number|null}|null} link - see `cloudFileLink()`
+ * @param {number} now - the current time, `Date.now()`
+ * @returns {boolean}
+ */
+export function cloudLinkUsable(link, now) {
+    return !!link?.url && (link.expiresAt == null || now < link.expiresAt);
+}
+
+/**
+ * Whether a downloaded file is the one the command announced. Without an md5
+ * in the command there is nothing to hold it to, and the file is taken.
+ *
+ * @param {Buffer} buf - the downloaded file
+ * @param {string|null} md5 - the command's `md5`, in either case
+ * @returns {boolean}
+ */
+export function matchesMd5(buf, md5) {
+    if (!md5) return true;
+    return createHash("md5").update(buf).digest("hex").toLowerCase() === String(md5).toLowerCase();
+}
+
+/**
+ * Downloads the sliced file of a cloud print from the link the printer was
+ * given, see `cloudFileLink()`. Why it failed goes onto the record as
+ * `cloudError`, for the log line `sliceFetchFailure()` writes. The link itself
+ * is never logged: it is signed, and anyone holding it can fetch the file.
+ *
+ * @param {object} printer - the printer, for the log
+ * @param {{url: string, expiresAt: number|null, md5: string|null}} link - the job's cloud link
+ * @param {object} record - `printer.lastSliceFetch`
+ * @returns {Promise<Buffer|null>} the whole 3MF, or null
+ */
+async function downloadCloudFile(printer, link, record) {
+    if (!cloudLinkUsable(link, Date.now())) {
+        record.cloudError = `the job's cloud link expired at ${new Date(link.expiresAt).toISOString()}`;
+        return null;
+    }
+    try {
+        const response = await fetch(link.url, { signal: AbortSignal.timeout(CLOUD_DOWNLOAD_TIMEOUT_MS) });
+        if (!response.ok) {
+            record.cloudError = `the job's cloud link answered ${response.status}`;
+            return null;
+        }
+        const buf = Buffer.from(await response.arrayBuffer());
+        debug("gcode", printer.name, printer.logFilePath, `[Print] Downloaded the job from its cloud link, ${buf.length} bytes`);
+        if (!matchesMd5(buf, link.md5)) {
+            record.cloudError = "the file behind the job's cloud link is not the one Bambu Studio announced, its md5 differs";
+            return null;
+        }
+        return buf;
+    } catch (err) {
+        record.cloudError = `the download from the job's cloud link failed: ${err.message}`;
+        return null;
     }
 }
 

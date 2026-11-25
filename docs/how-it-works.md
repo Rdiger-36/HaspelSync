@@ -30,6 +30,8 @@ When a file was changed and sent again under the same name, the printer can keep
 
 The download needs LAN access to the printer on port 990 (FTPS) with the printer's access code, the same code MQTT already uses. Without it the print is logged as running but nothing is booked.
 
+A print Bambu Studio sends through the cloud is the exception. Since Bambu Studio 2.9.2 it goes to the printer's internal storage rather than to the stick, so FTPS finds nothing. The printer announces the job with the link it downloads it from, and when the printer has no copy the service downloads the file from that link instead, checked against the md5 the printer was given. The link is valid for an hour after the start, which also covers a restart of the service in that hour.
+
 ## Operation modes
 
 | Mode | Behaviour |

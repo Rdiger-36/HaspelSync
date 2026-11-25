@@ -13,6 +13,21 @@ rediscovering. Anything finished comes out of this file.
 Most of this has been run against the P2S by now, and the ticks say which.
 Ordered by how likely a user is to hit it.
 
+- [ ] **Cloud print read from its link (issue #281).** The link itself was
+  proven on the P2S on 2026-11-25: Bambu Studio 2.9.2, Print, "Dr._Doom__Mask_plate_1",
+  the project_file echo carried a presigned S3 url signed for `host` only with
+  `X-Amz-Expires=3600`, a plain GET returned the whole 3MF and its md5 was the
+  echo's. The fallback itself ran the same evening on the P2S against the mock
+  Spoolman: "Shorthaired_Dachshund_Phone_Stand_P2S_020", the FTPS login timed
+  out (control socket) and the slice info was loaded from the link, 5.2 MB,
+  600 layers weighed from the G-code. A restart was run on "Wichtel_mit_Laterne"
+  a few minutes later: the link went to printstate.json without a file path,
+  the restarted service found the job running and loaded the slice info from
+  the link it read back, 7.9 MB, 625 layers. Still to do: the booking at the end of
+  such a print, a print on an X1C (spacerx's case, the stick gets nothing
+  there since 2.9.2, so the names and the listing come up empty) and a look at
+  what an H2C sends, where a LAN send was seen to name `brtc://emmc/`, which
+  nothing outside Bambu's plugin can read.
 - [ ] **AMS refill split, booked end to end.** The switch itself was traced on
   the P2S on 2026-10-07 (spool cut to about 8 g in A3, backup in A4, mapping
   moved at layer 88 of 235) and `test/refill.test.js` replays it. The split

@@ -37,6 +37,13 @@ import { readJsonFile, writeJsonFile } from "./jsonfile.js";
  * spools on the external holder by hand, see `holderSwapIndices()` in ams.js.
  * The printer knows nothing about those spools, so a restart would otherwise
  * forget every choice made during the print.
+ *
+ * And so is the cloud link a job was downloaded from, see `cloudFileLink()` in
+ * gcode.js. Bambu Studio 2.9.2 stopped putting cloud prints on the stick, the
+ * link is the only way left to the file, and the printer names it once, in the
+ * `project_file` echo before the start. It is signed and stays valid for an
+ * hour, so a restart within that hour can still use it. This file is not part
+ * of the diagnostics bundle, which is what keeps a signed link out of an issue.
  */
 
 const SCHEMA_VERSION = 1;
@@ -119,6 +126,41 @@ export function rememberSlicedFile(printerId, filePath) {
 export function recallSlicedFile(printerId, jobName) {
     const path = currentEntry(printerId, jobName)?.filePath;
     return typeof path === "string" && path ? path : null;
+}
+
+/**
+ * Records the cloud link the running job was downloaded from.
+ *
+ * Only for a job whose start is recorded, for the reason `rememberSlicedFile()`
+ * gives.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {{url: string, expiresAt: number|null, md5: string|null}|null} link - see `cloudFileLink()` in gcode.js
+ */
+export function rememberCloudFile(printerId, link) {
+    const entry = load()[printerId];
+    if (!entry || typeof entry.startedAt !== "number" || !link?.url) return;
+    entry.cloudFile = { url: link.url, expiresAt: link.expiresAt ?? null, md5: link.md5 ?? null };
+    persist();
+}
+
+/**
+ * The cloud link recorded for a printer's job, if it is the same job and recent.
+ * Whether the link has expired is for the caller to decide, see
+ * `cloudLinkUsable()` in gcode.js.
+ *
+ * @param {string} printerId - the printer's serial
+ * @param {string|null} jobName - `subtask_name` the printer reports now
+ * @returns {{url: string, expiresAt: number|null, md5: string|null}|null}
+ */
+export function recallCloudFile(printerId, jobName) {
+    const link = currentEntry(printerId, jobName)?.cloudFile;
+    if (!link || typeof link.url !== "string" || !/^https:\/\//i.test(link.url)) return null;
+    return {
+        url: link.url,
+        expiresAt: Number.isFinite(link.expiresAt) ? link.expiresAt : null,
+        md5: typeof link.md5 === "string" && link.md5 ? link.md5 : null,
+    };
 }
 
 /**

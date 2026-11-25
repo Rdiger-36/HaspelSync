@@ -75,7 +75,7 @@ The trace is readable in the Web UI like any other log: pick the printer under *
 
 ## No sliced file on a P2S, H2 or X2D
 
-The P2S, the H2 series and the X2D keep the file of a print in internal storage, and their FTPS server shows only a USB stick. Without a stick in the printer, every print starts like this, looks twice more with 30 seconds in between, and nothing is booked. The printer's answer for each path is in parentheses, and the listing of the stick comes after it. A 550 on every path and no 3MF on the printer at all is what a missing stick looks like:
+The P2S, the H2 series and the X2D keep the file of a print in internal storage, and their FTPS server shows only a USB stick. Without a stick in the printer, every print sent over the LAN starts like this, looks twice more with 30 seconds in between, and nothing is booked. A cloud print is read from its cloud link instead, see below. The printer's answer for each path is in parentheses, and the listing of the stick comes after it. A 550 on every path and no 3MF on the printer at all is what a missing stick looks like:
 
 ```bash
 [LOG] Bambu Lab P2S - [Print] Print running: "bracket", fetching slice info via FTPS...
@@ -86,7 +86,7 @@ The P2S, the H2 series and the X2D keep the file of a print in internal storage,
 [LOG] Bambu Lab P2S - [Print] No sliced file on the printer under /cache/bracket.gcode.3mf (550 Failed to open file.), /cache/bracket.3mf (550 Failed to open file.), /bracket.gcode.3mf (550 Failed to open file.), /bracket.3mf (550 Failed to open file.). Listed 0 3MF files on the printer: no 3MF was written at the start, consumption tracking unavailable for this print
 ```
 
-The printer reports whether a stick is in, and the print card on the dashboard says "No USB stick or SD card in the printer, nothing will be booked" for as long as none is, while idle as well; the log says the same once when the stick goes missing. Put a USB stick into the printer. From then on the printer writes every job it receives onto the stick by itself, whether it was sent from Bambu Studio, through the cloud or from the Handy app, and the next print is tracked. Nothing has to change in Bambu Studio. The file listing of the [Debug-Printers CLI](#debug-printers-cli) below shows what the printer exposes: an empty listing means no stick.
+The printer reports whether a stick is in, and the print card on the dashboard says "No USB stick or SD card in the printer, only a cloud print can be booked" for as long as none is, while idle as well; the log says the same once when the stick goes missing. Put a USB stick into the printer. From then on the printer writes every job sent over the LAN onto the stick by itself, and the next print is tracked. A cloud print reaches the stick only from Bambu Studio 2.9.1 or older, and is read from its cloud link otherwise. Nothing has to change in Bambu Studio. The file listing of the [Debug-Printers CLI](#debug-printers-cli) below shows what the printer exposes: an empty listing means no stick.
 
 Where on the stick the file lands and what it is called differs. A P2S writes `/cache/<job>.gcode.3mf`. An X2D sending a MakerWorld model that was changed in Bambu Studio writes it to the root under the project's name, `/CartPicker.gcode.3mf`, while the job is named after the print profile, "0.2mm layer, 3 walls, 15% infill". When no file is found under the job's name, the service lists the root and `/cache` and checks the 3MF files written within ten minutes of the print's start. A file is taken when it is proven to be the print's, by the md5 Bambu Studio sent, by the MakerWorld ids or by its profile or model title being the job name, or when it is the only candidate that nothing rules out. The log says which file it took and why:
 
@@ -103,6 +103,18 @@ When no file was written at the start, or every one that was is ruled out, the o
 Once found, the path is kept in `printstate.json` next to the print's start, and a restart of the service during the print reads the same file again, whatever the job is called by then: "Found "Darts Holder and Storage" already running, started ..., its sliced file was read from /cache/...".
 
 A print started on the printer's screen from its internal storage, such as the sample models it ships with, is never on the stick and cannot be tracked.
+
+### A cloud print sent from Bambu Studio 2.9.2 or newer
+
+Bambu Studio 2.9.2 changed how a print reaches a printer bound to the cloud: it is sent through the cloud first and over the LAN only when that fails (issue #281). The printer then downloads the job into its internal storage, and the stick, where Bambu Studio 2.9.1 still put it over FTPS, never sees it. This applies to the X1 series as well, which kept every cloud print on its SD card before.
+
+The printer announces such a job with the link it downloads it from, and when no file is found on the printer, the service downloads it from there. The file has to have the md5 the printer was given, or it is not used:
+
+```
+[LOG] Bambu Lab X1C - [Print] The sliced file is not on the printer, read it from the cloud link of the job instead, 20.8 MB
+```
+
+The link is valid for an hour after the start. A restart of the service later than that, or a link the cloud refuses, ends with the reason after the usual line: "No sliced file on the printer under ..., and the job's cloud link expired at ...". The link itself is never written to the log, and it is kept in `printstate.json` only, which is not part of the diagnostics export.
 
 The i at the end of the line on the print card opens the same advice in the Web UI, with the printer's answer as the log has it.
 

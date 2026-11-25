@@ -39,16 +39,17 @@ An original Bambu Lab spool is recognised by its RFID tag and linked on its own;
 
 ![Dashboard](docs/images/dashboard-dark.png)
 
-## What changed in 1.3.0
+## What changed in 1.4.0
 
-- **The project is called HaspelSync.** The image is `ghcr.io/rdiger-36/haspelsync`. The old name `ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus` receives every release up to the 1.4 line, 1.5.0 and later are published under the new name only, so switch the image in `docker run` or Docker Compose; configuration and volumes stay as they are. A container from the old name says so itself.
-- **G-code tracking is the new default.** Filament consumption is read from the sliced file of the print instead of the AMS RFID remain percentage, so 3rd party spools without a tag are covered as well. The previous behaviour lives on as [Legacy mode](docs/legacy-mode.md).
-- **Everything is configured in the Web UI now.** The [settings page](docs/settings.md) holds every setting and the printer list.
-- **Environment variables and hand-written `printers.json` are deprecated.** They keep working, see [Deprecated configuration](docs/deprecated-configuration.md).
-- **The Web UI can ask for a password, and the [API](docs/api.md) needs a key.** Both are set under **Network access** on the [settings page](docs/settings.md). A script or an integration that called the API without a key needs one now.
-- **Slots are numbered the way the printer numbers them.** The first slot of the first unit is `A1`, so every slot label moved up by one, in the Web UI, in the logs, in the API and in the Spoolman location of a spool.
+- **The container no longer runs as root.** The image runs as the unprivileged user `node` (uid and gid 1000), `docker exec` and `debug-printers` included. An installation on a Linux host or a NAS with bind mounted `printers/` and `logs/` directories hands them to that user once with `sudo chown -R 1000:1000`; until then the container stops on start and says so. Docker Desktop and named volumes need nothing.
+- **Bambu Lab spools are linked through Spoolman's own tags.** Spoolman 0.27.0 and newer holds the tag of a spool natively, and a native tag belongs to one spool only. Spools linked before keep working through the extra field `tag`, and the settings page migrates them in one click when you want to. See [Spool tags](docs/settings.md#spool-tags).
+- **The H3C and its AMS 3H are supported.** The nine slots are `E1` to `E9`, the two drying zones get readings of their own, and the holders of its tools are `External` to `External-9`.
+- **Running dryers get a card of their own** on the dashboard: what each dryer is doing, the temperature and filament it was set to, the progress and the time left, on the AMS 2 Pro, the AMS HT and the AMS 3H alike.
+- **An AMS refill is booked on both spools**, on an A1 or a P1 as well now: the spool that ran out gets the layers up to the switch, the backup spool the rest. Its assignment is released at the end of the print, so the next spool put into that slot is not booked on the empty one.
+- **A slot the printer names is never swapped for a look-alike.** A filament printed from a slot without a linked spool is skipped and the print summary asks for an assignment, instead of being booked on another spool of the same material and colour.
+- **The old image name ends with 1.5.0.** `ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus` receives its last release before 1.5.0; switch to `ghcr.io/rdiger-36/haspelsync`, configuration and volumes stay as they are.
 
-Coming from 1.2.x? [Updating from 1.2.x](docs/updating.md) lists what can need you and what keeps working. The dashboard says the same once on the first visit after the update.
+Coming from 1.3.x? [Updating to 1.4.0](docs/updating-1.4.md) lists what can need you. Coming from 1.2.x, read [Updating from 1.2.x](docs/updating.md) first.
 
 ## Attention
 
@@ -67,7 +68,8 @@ Automatic creating and merging of spools and filaments in Spoolman relies on the
 | H series | ✅ with a USB stick in the printer, see below |
 | X1 series | ✅ |
 | X2D | ✅ with a USB stick in the printer, see below |
-| H3C with AMS 3H | ❓ new, from one user's report: the nine slots are `E1` to `E9`, see [issue #262](https://github.com/Rdiger-36/HaspelSync/issues/262) |
+| H3C with AMS 3H | ✅ the nine slots are `E1` to `E9` |
+| P3C with AMS 3P | ❓ untested, nobody has reported one yet, see [issue tracker](https://github.com/Rdiger-36/HaspelSync/issues) |
 | A2L | ❓ untested, its AMS reports as unit 16 and is not addressed yet, see [issue tracker](https://github.com/Rdiger-36/HaspelSync/issues) |
 
 | AMS | Supported |
@@ -75,7 +77,8 @@ Automatic creating and merging of spools and filaments in Spoolman relies on the
 | AMS | ✅ |
 | AMS 2 Pro | ✅ |
 | AMS HT | ✅ |
-| AMS 3H | ❓ the nine slot unit of the H3C, `E1` to `E9` |
+| AMS 3H | ✅ the nine slot unit of the H3C, `E1` to `E9` |
+| AMS 3P | ❓ untested, the unit of the P3C |
 | AMS Lite | ⚠️ no weight updates in [legacy mode](docs/legacy-mode.md) |
 
 Up to 12 AMS on one printer: max. 4 AMS Standard / 2 Pro plus 8 AMS HT.
@@ -89,9 +92,10 @@ x86-64, arm64 and arm/v7 are built; the [installation](docs/installation.md#supp
 ## Features
 
 - Real-time status of every connected AMS and of the external spool holder, on any number of printers
-- The humidity, the temperature and a running drying cycle per AMS unit, as far as the unit reports them
+- The humidity, the temperature and a running drying cycle per AMS unit, as far as the unit reports them, and a card for every dryer that is running
 - Consumption tracked from the sliced G-code, so 3rd party spools are covered too
-- Automatic merging and creating of spools and filaments in Spoolman, or manually per click
+- Automatic merging and creating of spools and filaments in Spoolman, or manually per click, linked through Spoolman's native tags where Spoolman has them
+- An AMS refill booked on both spools, split at the layer the AMS switched
 - Manual assignment of a Spoolman spool to a slot for spools the printer cannot identify, checked against the material the printer reports
 - A detail dialog per slot: everything Spoolman holds about the spool and its filament, next to what the printer reports, with the remaining weight, lot number and comment editable in place
 - New filaments filled in from the SpoolmanDB catalogue, multi colour spools included
@@ -126,6 +130,7 @@ You need a running Spoolman instance and, per printer, its serial number, access
 | [API](docs/api.md) | Who may call it, the API page in the Web UI, the OpenAPI document, and every route in a table |
 | [Troubleshooting](docs/troubleshooting.md) | Reading the logs, the `debug-printers` CLI, diagnostics and what an export contains |
 | [Legacy mode](docs/legacy-mode.md) | The RFID based tracking of 1.2.x and what it cannot do |
+| [Updating to 1.4.0](docs/updating-1.4.md) | The data directories of the non-root image, the end of the old image name, and the native tags |
 | [Updating from 1.2.x](docs/updating.md) | The four things an installation updated from 1.2.x can trip over, and what keeps working |
 | [Deprecated configuration](docs/deprecated-configuration.md) | Environment variables, hand-written `printers.json`, and the four container level variables |
 | [FAQ](docs/faq.md) | The questions that come up most |

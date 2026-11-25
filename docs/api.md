@@ -2,7 +2,7 @@
 
 [← Documentation](README.md)
 
-Everything the Web UI does, it does over this API, and a script, a home automation or the [Home Assistant integration](https://github.com/Rdiger-36/ha-bambulab-ams-spoolman-filamentstatus) can do the same. Every route answers JSON, a failure as `{ "ok": false, "error": "..." }` with a 4xx or 5xx status, and the ones that hand out a file or a stream of events say so below.
+Everything the Web UI does, it does over this API, and a script, a home automation or the [Home Assistant integration](https://github.com/Rdiger-36/ha-bambulab-ams-spoolman-filamentstatus) can do the same. Every route answers JSON, a failure as `{ "ok": false, "error": "..." }` with a 4xx or 5xx status, and the ones that hand out a file or a stream of events say so below. Many failures carry a `code` as well, `slotAmbiguous` for example, and `params` with the values the sentence names: the code is what the Web UI translates, so a script should test the code rather than the English sentence. A request that conflicts with the state of the printer or of the slot, a running print, legacy mode, a slot with nothing to write from or two slots under one label, is answered with 409.
 
 ## Who may call it
 
@@ -43,7 +43,7 @@ It is written by hand in `src/openapi.js`, next to the routes, and a test holds 
 
 ## Slot labels
 
-A slot is named the way the printer names it: `A1` is the first slot of the first AMS unit, `D4` the last slot of a fourth unit, `HT-A` the first AMS HT, `External` the spool holder on the printer itself, and `External-2` the second holder of a dual nozzle printer. That label is what `amsId` carries wherever a slot is addressed, and what the Spoolman location of a spool ends in.
+A slot is named the way the printer names it: `A1` is the first slot of the first AMS unit, `D4` the last slot of a fourth unit, `HT-A` the first AMS HT, `External` the spool holder on the printer itself, `External-2` the second holder of a dual nozzle printer, and on an H3C `E1` to `E9` for the nine slots of its AMS 3H and `External-3` to `External-9` for the holders of its other tools. That label is what `amsId` carries wherever a slot is addressed, and what the Spoolman location of a spool ends in.
 
 ## Live updates
 
@@ -54,7 +54,7 @@ A slot is named the way the printer names it: `A1` is the first slot of the firs
 | `slot_update` | A slot changed | `spool`, the slot as `GET /api/spools/{printerId}` lists it |
 | `status` | The printer reported | `lastMqttUpdate`, `lastMqttAmsUpdate` |
 | `refresh` | The first AMS report of a connection was processed; the dashboard reloads its lists | |
-| `ams_env` | Humidity, temperature or drying changed, at most every 30 seconds | `amsEnv`, one entry per unit |
+| `ams_env` | Humidity, temperature or drying changed, at most every 30 seconds | `amsEnv`, one entry per unit, the same as in `GET /api/status` |
 | `monitoring_update` | Monitoring was paused or resumed | `enabled` |
 | `printers_update` | A printer was added, changed or removed | |
 | `print_result_cleared` | The finished print was cleared from the dashboard | |
@@ -63,6 +63,10 @@ A slot is named the way the printer names it: `A1` is the first slot of the firs
 ```bash
 curl -N -H "Authorization: Bearer ams_..." http://192.168.1.50:4000/api/events
 ```
+
+## Drying state
+
+`amsEnv` in `GET /api/status` and in the `ams_env` event carries one entry per unit. A unit with a dryer carries a `drying` object with `active`, the minutes left, the target temperature, the duration and the filament it was set to. `status` says what the cycle is doing: `off`, `checking`, `drying`, `cooling`, `stopping`, `error`, `heatOutOfControl` or `testing`, read the way Bambu Studio reads it, and `phase` is `heating` or `dehumidify` while it dries. On an AMS 3H the unit's own readings are null, and `zones` carries the readings of its ordinary slots and of its drying slots, with `slots` in `drying` naming the slots the dryer serves.
 
 ## Every route
 
@@ -189,10 +193,10 @@ Facts about the installation, the update check, the support bundle, the restart,
 
 | Route | Does |
 | :---- | :---- |
-| `GET /api/system` | Facts about this installation |
+| `GET /api/system` | Facts about this installation, among them the image it runs from and, for the old image name, `imageStopsAt`, the first version no longer published under it |
 | `GET /api/update` | Whether a newer release exists on GitHub |
 | `GET /api/diagnostics/download` | Download the support bundle (download) |
 | `POST /api/restart` | Restart the service |
-| `GET /api/notices` | The notices the dashboard may show |
+| `GET /api/notices` | The notices the dashboard may show; `legacy-image` carries `stopsAt` |
 | `POST /api/notices/{id}/ack` | Dismiss a notice |
 | `GET /api/openapi.json` | This document |

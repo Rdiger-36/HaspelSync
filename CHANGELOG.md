@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.4.1-dev.2
    - New Features:
       - The print card says where the sliced file came from, as one more entry next to the times: "Sliced file from the printer" with a USB stick icon or "from the cloud" with a cloud icon, and "not found" in red once the last attempt came up empty. The print's report keeps it, so a booking that looks wrong can be traced back to its file afterwards. `/api/print` carries it as `sliceSource`, `printer` or `cloud`, and the report as the same field (issue #281)
 -----------------------------------------------------------------------------------------------

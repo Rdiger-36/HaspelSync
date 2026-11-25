@@ -20,10 +20,10 @@ import {
     setSpoolArchived,
     logSpoolmanFailure,
 } from "./spoolman.js";
-import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, refillsFromActiveSlot, splitAtRefills, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
+import { fetchSliceInfo, calcFullConsumption, calcPartialConsumption, completedLayerIndex, resolveSliceSlots, orderedAmsSlots, decodeStudioMapping, sliceFetchRetryDue, refillsBetween, refillsFromActiveSlot, splitAtRefills, cloudFileLink, CLOUD_FILE_PATH, SLICE_FETCH_RETRY_MS, SLICE_FETCH_ATTEMPTS } from "./gcode.js";
 import { getMapping, getMappings, clearMapping, setMapping, spoolIdsAssignedElsewhere } from "./mappings.js";
 import { learnPresets } from "./presets.js";
-import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberPrintSlots, recallPrintSlots, rememberFilamentSpools, recallFilamentSpools } from "./printstate.js";
+import { rememberPrintStart, recallPrintStart, forgetPrintStart, rememberSlicedFile, recallSlicedFile, rememberCloudFile, recallCloudFile, rememberPrintSlots, recallPrintSlots, rememberFilamentSpools, recallFilamentSpools } from "./printstate.js";
 import { uniqueSpoolForSlot } from "../public/match.js";
 import { humanLayers } from "../public/shared.js";
 import { describePrintError, describePrintErrorInAll } from "./printerrors.js";
@@ -171,8 +171,11 @@ export function ensureSliceInfo(printer, jobName, gcodeFile = null, fileName = n
             if (sliceInfo) {
                 printer.currentSliceInfo = sliceInfo;
                 // So a restart of the service during this print reads the same
-                // file again, whatever the job is called by then
-                if (printer.lastSliceFetch?.path) rememberSlicedFile(printer.id, printer.lastSliceFetch.path);
+                // file again, whatever the job is called by then. A file read
+                // from the cloud link has no path on the printer, the link is
+                // remembered instead, see handlePrintStateChange()
+                const path = printer.lastSliceFetch?.path;
+                if (path && path !== CLOUD_FILE_PATH) rememberSlicedFile(printer.id, path);
                 console.log(printer.name, printer.logFilePath, `[Print] Slice info loaded: ${describeSliceInfo(sliceInfo)}`);
             } else {
                 console.log(printer.name, printer.logFilePath, `[Print] ${sliceFetchFailure(printer.lastSliceFetch)}, ${sliceFetchOutlook(printer.lastSliceFetch)}`);
@@ -202,6 +205,7 @@ export function runningPrint(printer) {
         totalLayers: printer.currentTotalLayers ?? null,
         identity: printer.currentIdentity ?? null,
         filePath: printer.currentFilePath ?? null,
+        cloudFile: printer.currentCloudFile ?? null,
     };
 }
 
@@ -270,7 +274,15 @@ function sliceFetchOutlook(record) {
  */
 export function sliceFetchFailure(record) {
     if (!record) return "No sliced file was fetched";
-    if (record.error) {
+    // A file was found, on the printer or behind the cloud link, and it is
+    // the content that failed. Checked first, because a login that failed
+    // before the cloud link was read still sits on the record
+    if (record.path) return `${record.path} carries no Metadata/slice_info.config`;
+    // Why the job's cloud link did not help either, when there was one. The
+    // printer has no copy of a print Bambu Studio 2.9.2 sent (issue #281), so
+    // this is the half of the line that says why such a print went unbooked
+    const cloud = record.cloudError ? `, and ${record.cloudError}` : "";
+    if (record.error && !record.cloudError) {
         // Nothing was tried: the login itself failed. The FTPS service of a
         // P2S had hung on 2026-10-02 and answered the TLS handshake with plain
         // text; the card then said "No sliced file on the printer" about a
@@ -278,19 +290,17 @@ export function sliceFetchFailure(record) {
         // rebooted for the file's name
         return `FTPS login to the printer failed: ${record.error}`;
     }
-    if (!record.path) {
-        // The printer's answer per path, when the fetch recorded one: a 550
-        // from a printer without a USB stick and a data connection that never
-        // opened used to read the same, and telling them apart took a debug log
-        const reasons = record.reasons || {};
-        const tried = record.tried.map(path => (reasons[path] ? `${path} (${reasons[path]})` : path));
-        // Only when the storage was listed at all, which needs the print's start
-        const listed = typeof record.listed === "number"
-            ? `. Listed ${record.listed} 3MF files on the printer: ${record.settled || "no 3MF was written at the start"}`
-            : "";
-        return `No sliced file on the printer under ${tried.join(", ")}${listed}`;
-    }
-    return `${record.path} carries no Metadata/slice_info.config`;
+    if (record.error) return `FTPS to the printer failed: ${record.error}${cloud}`;
+    // The printer's answer per path, when the fetch recorded one: a 550 from
+    // a printer without a USB stick and a data connection that never opened
+    // used to read the same, and telling them apart took a debug log
+    const reasons = record.reasons || {};
+    const tried = record.tried.map(path => (reasons[path] ? `${path} (${reasons[path]})` : path));
+    // Only when the storage was listed at all, which needs the print's start
+    const listed = typeof record.listed === "number"
+        ? `. Listed ${record.listed} 3MF files on the printer: ${record.settled || "no 3MF was written at the start"}`
+        : "";
+    return `No sliced file on the printer under ${tried.join(", ")}${listed}${cloud}`;
 }
 
 /**
@@ -423,6 +433,8 @@ export function notePrintCommand(printer, message) {
     printer.pendingFileName = fileName ? { jobName, fileName } : null;
     const identity = printIdentity(command);
     printer.pendingIdentity = identity ? { jobName, ...identity } : null;
+    const cloudFile = cloudFileLink(command.url);
+    printer.pendingCloudFile = cloudFile ? { jobName, ...cloudFile, md5: identity?.md5 ?? null } : null;
 
     // A file:// url means the printer sent this command to itself, for a job
     // started on its screen from its storage. Bambu Studio's are https:// for
@@ -565,7 +577,7 @@ export function noteStorage(printer, print) {
 
     if (!legacyMode()) {
         if (!print.sdcard) {
-            console.log(printer.name, printer.logFilePath, "[Print] No USB stick or SD card in the printer. The sliced file of a print cannot be read from it, so nothing will be booked until one is in.");
+            console.log(printer.name, printer.logFilePath, "[Print] No USB stick or SD card in the printer. The sliced file of a print cannot be read from it, so until one is in only a cloud print, read from its cloud link, will be booked.");
         } else if (wasKnown) {
             console.log(printer.name, printer.logFilePath, "[Print] USB stick or SD card is in the printer again, the next print will be tracked.");
         }
@@ -744,6 +756,13 @@ export async function handlePrintStateChange(printer, print) {
             ? pendingIdentity
             : null;
 
+        // And the cloud link of the job, the same way. See cloudFileLink() in gcode.js
+        const pendingCloud = printer.pendingCloudFile;
+        printer.pendingCloudFile = null;
+        printer.currentCloudFile = pendingCloud && (!pendingCloud.jobName || !jobName || pendingCloud.jobName === jobName)
+            ? { url: pendingCloud.url, expiresAt: pendingCloud.expiresAt, md5: pendingCloud.md5 }
+            : null;
+
         const pending = printer.pendingMapping;
         printer.pendingMapping = null;
         if (pending && (!pending.jobName || !jobName || pending.jobName === jobName)) {
@@ -771,8 +790,11 @@ export async function handlePrintStateChange(printer, print) {
             console.log(printer.name, printer.logFilePath,
                 `[Print] Found "${jobName ?? "the job"}" already running, started ${new Date(recalled).toISOString()}${printer.currentFilePath ? `, its sliced file was read from ${printer.currentFilePath}` : ""}`);
             restorePrintSlots(printer, jobName);
+            // The echo came before the restart, so the link is on disk or nowhere
+            printer.currentCloudFile = printer.currentCloudFile ?? recallCloudFile(printer.id, jobName);
         } else {
             rememberPrintStart(printer.id, jobName, printer.printStartedAt);
+            rememberCloudFile(printer.id, printer.currentCloudFile);
         }
         printer.lastPrintSummary       = null;
         printer.printResultDismissed   = false;

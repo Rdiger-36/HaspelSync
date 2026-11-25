@@ -367,7 +367,7 @@ const schemas = {
             kind: t.string("`connection` when the FTPS login itself failed, so no path was tried; `missing` when every path was tried and none held the file."),
             reason: t.string("What the printer answered, as the log says it."),
         }, { description: "Set while the running job has no slice info and the last fetch of its file did not deliver a path: while that fetch is still under way, after the printer refused the FTPS login, or once every candidate path was tried and none held the file. Null once the file is read, or when nothing was looked for." })),
-        storagePresent: t.nullable(t.boolean("Whether the printer's USB stick or SD card is in, from `print.sdcard`. It is the storage the sliced file is read from, so `false` means nothing will be booked. Null until a report carried the field.")),
+        storagePresent: t.nullable(t.boolean("Whether the printer's USB stick or SD card is in, from `print.sdcard`. It is the storage the sliced file is read from, so `false` means only a cloud print, whose file is downloaded from its cloud link, will be booked. Null until a report carried the field.")),
         loadedSpools: t.array(t.ref("ClientSpool"), "The same list as `GET /api/spools/{printerId}`."),
         fullConsumption: t.nullable(t.object({}, { additional: t.ref("Consumption"), description: "What the whole print needs, per sliced filament." })),
         consumption: t.nullable(t.object({}, { additional: t.ref("Consumption"), description: "What has been consumed at the current layer, or the whole amount once the print finished." })),

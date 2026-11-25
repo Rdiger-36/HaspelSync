@@ -361,31 +361,33 @@ Rdiger-36/Rdiger-36 keeps adding the old count to the new one.
 - [ ] Update the README, `docs/installation.md`, `docker/README.md` and
   `AGENTS.md`, which all describe the two images.
 
-## The 1.3.0 release
+## The 1.4.0 release
 
-The dev phase ended with `1.3.0-dev.30`; dev.29 was the build that renamed the
-project to HaspelSync. The version is `1.3.0` in `package.json`,
+`1.3.8` was never released, so its three dev builds went into 1.4.0 together
+with `1.4.0-dev.1` to `dev.4`. The version is `1.4.0` in `package.json`,
 `package-lock.json` and `src/config.js`, and the consolidated release block,
-written for a reader of 1.2.1, replaced the thirty `Version 1.3.0-dev.*` blocks
-in `CHANGELOG.md`. Fixes of behaviour only a dev build had were left out of it
-on purpose; the dev blocks stay in the history of `CHANGELOG.md`. Every tag
-publishes two images, `haspelsync` and, built on top of it from
-`docker/Dockerfile.legacy`, the old name; a container from the old name says so
-in its log and on the dashboard after every start.
+written for a reader of 1.3.7, replaced those seven dev blocks in
+`CHANGELOG.md`; the dev blocks stay in its history. 1.3.0 went the same way,
+from thirty dev blocks written for a reader of 1.2.1.
 
-- [x] Delete the `v1.3.0-dev.*` releases once `v1.3.0` is out, and keep their
-  tags. A pre-release carries the generated pull request list of one dev step
-  and that step's changelog section, and neither is lost with it: the pull
-  requests keep their labels, and the dev blocks stay in the history of
-  `CHANGELOG.md`. The tag is the part that carries something of its own, which
-  is the commit that went into `:1.3.0-dev.<n>` on ghcr, where the image
+- [ ] Delete the `v1.3.8-dev.*` and `v1.4.0-dev.*` releases once `v1.4.0` is
+  out, and keep their tags. A pre-release carries the generated pull request
+  list of one dev step and that step's changelog section, and neither is lost
+  with it: the pull requests keep their labels, and the dev blocks stay in the
+  history of `CHANGELOG.md`. The tag is the part that carries something of its
+  own, which is the commit that went into `:<version>` on ghcr, where the image
   outlives the release either way. A ref costs nothing and the compare links of
   the remaining notes are built from it.
+- [ ] Retake `docs/images/settings-service.png` once `v1.4.0` is the latest
+  release. The one taken for the release reads "This is a prerelease. The
+  latest release is 1.3.7".
 - [ ] The next version takes a fresh `Unreleased` block at the top of
   `CHANGELOG.md`, renamed at its bump the way the dev builds were, and a
   version bump moves `package.json`, `package-lock.json` and `src/config.js`
   together: the publish workflow compares the tag against `package.json` and
-  aborts on a mismatch.
+  aborts on a mismatch. A consolidated release block is drafted in
+  `docs/changelog-<version>-draft.md` while the dev builds ship and replaces
+  their blocks in the bump to the release.
 
 Tag behaviour, after the hardening in `c053561`:
 

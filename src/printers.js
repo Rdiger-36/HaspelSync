@@ -154,6 +154,11 @@ function createRuntimePrinter(entry) {
         // Bambu Studio sent. See localFileName() in mqtt.js.
         currentFileName: null,
         currentSliceInfo: null,
+        // Where the slice info of the running job was read from, "printer"
+        // for the USB stick or SD card over FTPS, "cloud" for the job's cloud
+        // link. Null until it is read. Shown on the print card and kept in
+        // the print's report, see ensureSliceInfo() in mqtt.js.
+        currentSliceSource: null,
         // Whether the printer has its removable storage in, the USB stick of a
         // P2S, an H2 or an X2D and the microSD card of the others, from
         // print.sdcard. Null until a report carries the field. That storage is

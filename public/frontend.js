@@ -2963,6 +2963,10 @@ document.addEventListener("DOMContentLoaded", () => {
             facts.push([t("dashboard.print.expectedEnd"), `${formatMoment(printData.estimatedEndAt, withDate)} (${left})`]);
         }
 
+        // Last, because it settles once and then stays: the times move on
+        const source = sliceSourceFact(printData.sliceSource, !!printData.sliceFetch?.final);
+        if (source) facts.push(source);
+
         return factsRow(facts);
     }
 
@@ -3118,10 +3122,40 @@ document.addEventListener("DOMContentLoaded", () => {
     function factsRow(facts) {
         if (!facts.length) return "";
 
+        // The fourth entry is markup put in front of the value, an icon from
+        // this file and never anything a response carried
         return `<div class="gc-facts">${facts
-            .map(([term, value, attrs = ""]) =>
-                `<span class="gc-fact"><span class="gc-fact-term">${escapeHtml(term)}</span> <span ${attrs}>${escapeHtml(value)}</span></span>`)
+            .map(([term, value, attrs = "", icon = ""]) =>
+                `<span class="gc-fact"><span class="gc-fact-term">${escapeHtml(term)}</span> <span ${attrs}>${icon}${escapeHtml(value)}</span></span>`)
             .join("")}</div>`;
+    }
+
+    /**
+     * The icons of the sliced file's source, drawn in the grey of the fact's
+     * term. A line icon rather than a word alone, so the printer's storage and
+     * the cloud tell apart at a glance; the word next to it carries it for
+     * anyone who cannot see the icon.
+     */
+    const SLICE_SOURCE_ICONS = {
+        printer: `<svg class="gc-fact-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2h6v6H9z"/><path d="M7 8h10v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"/></svg>`,
+        cloud: `<svg class="gc-fact-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 9.5 4.25 4.25 0 0 0 7 18z"/></svg>`,
+    };
+
+    /**
+     * The facts entry for where the sliced file came from, or null when there
+     * is nothing to say: the file has not been read yet and is still being
+     * looked for. "not found" only once the last attempt came up empty, in the
+     * red the line under it uses.
+     *
+     * @param {string|null} source - `sliceSource` of `/api/print` or of the report
+     * @param {boolean} [missing] - whether the last attempt found nothing
+     */
+    function sliceSourceFact(source, missing = false) {
+        const term = t("dashboard.print.slicedFile");
+        if (source === "printer" || source === "cloud") {
+            return [term, t(`dashboard.print.slicedFrom.${source}`), `class="gc-fact-source"`, SLICE_SOURCE_ICONS[source]];
+        }
+        return missing ? [term, t("dashboard.print.slicedNotFound"), `class="gc-required"`] : null;
     }
 
     /**
@@ -3252,6 +3286,10 @@ document.addEventListener("DOMContentLoaded", () => {
             [t("dashboard.summary.duration"), formatDuration(summary.durationMs)],
             [t("dashboard.summary.layers"), humanTotal ? `${humanLayer} / ${humanTotal}` : `${humanLayer}`],
         ];
+        // Kept in the report because the card's line is gone once the print
+        // has ended, and a booking that looks wrong is read here afterwards
+        const source = sliceSourceFact(summary.sliceSource);
+        if (source) facts.push(source);
 
         let html = factsRow(facts);
 

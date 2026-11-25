@@ -4,7 +4,7 @@
 
 Reachable on `http://<host>:4000`. It asks for a password only if one is set under **Network access**, see [Settings](settings.md).
 
-The dashboard shows the running print, its layer progress, and every loaded spool joined with what the print needs from it: what is on the spool, how much this print takes, and what is left afterwards.
+The dashboard shows the running print, its layer progress, and every loaded spool joined with what the print needs from it: what is on the spool, how much this print takes, and what is left afterwards. Under the layer bar the print card names when the print started, how long it has run and when it should end, and where its sliced file came from: **from the printer**, the USB stick or SD card, or **from the cloud**, the link a cloud print was downloaded from. The report after the print keeps that last one.
 
 ![Dashboard](images/dashboard.png)
 

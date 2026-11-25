@@ -7,7 +7,7 @@
 - A running Spoolman instance
 - Serial number, access code and IP address of every printer
 - LAN access to the printer on port **8883** (MQTT, AMS data) and **990** (FTPS, sliced file)
-- On a P2S, an H2 series printer or an X2D: a USB stick in the printer. These printers only expose the stick over FTPS, and the sliced file of a print is read from it. Without a stick only a print sent through the cloud is tracked, its file downloaded from the job's cloud link, and the print card on the dashboard says "No USB stick or SD card in the printer" for as long as none is in, see [troubleshooting](troubleshooting.md#no-sliced-file-on-a-p2s-h2-or-x2d)
+- On a P2S, an H2 series printer or an X2D: a USB stick in the printer for prints sent over the LAN. These printers only expose the stick over FTPS, and the sliced file of a print is read from it. Without a stick only a print sent through the cloud is tracked, its file downloaded from the job's cloud link, and the print card on the dashboard says "No USB stick or SD card in the printer" for as long as none is in, see [troubleshooting](troubleshooting.md#no-sliced-file-on-a-p2s-h2-or-x2d)
 - How the printer is bound does not matter: cloud mode, LAN only mode and developer mode all work. Both ports above are served locally in every one of them, and nothing is read through the Bambu cloud
 - "Update remaining capacity" turned on in Bambu Studio. The consumption itself comes from the sliced file, but the remaining weight the AMS reports is what a spool is matched against when it is merged into an existing Spoolman spool, and it is the only source [legacy mode](legacy-mode.md) has:
 

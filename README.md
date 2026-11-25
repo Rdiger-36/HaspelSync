@@ -64,10 +64,10 @@ Automatic creating and merging of spools and filaments in Spoolman relies on the
 | A series with AMS Lite | ⚠️ no weight updates in [legacy mode](docs/legacy-mode.md) |
 | A1 with AMS Standard / 2 Pro | ✅ |
 | P1 series | ✅ |
-| P2S | ✅ with a USB stick in the printer, see below |
-| H series | ✅ with a USB stick in the printer, see below |
+| P2S | ✅ a USB stick for prints sent over the LAN, see below |
+| H series | ✅ a USB stick for prints sent over the LAN, see below |
 | X1 series | ✅ |
-| X2D | ✅ with a USB stick in the printer, see below |
+| X2D | ✅ a USB stick for prints sent over the LAN, see below |
 | H3C with AMS 3H | ✅ the nine slots are `E1` to `E9` |
 | P3C with AMS 3P | ❓ untested, nobody has reported one yet, see [issue tracker](https://github.com/Rdiger-36/HaspelSync/issues) |
 | A2L | ❓ untested, its AMS reports as unit 16 and is not addressed yet, see [issue tracker](https://github.com/Rdiger-36/HaspelSync/issues) |

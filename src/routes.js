@@ -806,6 +806,9 @@ export function registerRoutes(app, printers) {
             // Not tied to the job: the card says it while idle as well, so the
             // stick is in before the next print rather than found missing by it.
             storagePresent: printer.storagePresent ?? null,
+            // Where the running job's file came from, for the card's facts
+            // line. Only for the printer's own job: a ?job= look has none
+            sliceSource: sliceInfo && sliceInfo === printer.currentSliceInfo ? (printer.currentSliceSource ?? null) : null,
             loadedSpools,
             fullConsumption,
             consumption,

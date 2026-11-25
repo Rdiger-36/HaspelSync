@@ -176,6 +176,7 @@ export function ensureSliceInfo(printer, jobName, gcodeFile = null, fileName = n
                 // remembered instead, see handlePrintStateChange()
                 const path = printer.lastSliceFetch?.path;
                 if (path && path !== CLOUD_FILE_PATH) rememberSlicedFile(printer.id, path);
+                printer.currentSliceSource = sliceSource(printer.lastSliceFetch);
                 console.log(printer.name, printer.logFilePath, `[Print] Slice info loaded: ${describeSliceInfo(sliceInfo)}`);
             } else {
                 console.log(printer.name, printer.logFilePath, `[Print] ${sliceFetchFailure(printer.lastSliceFetch)}, ${sliceFetchOutlook(printer.lastSliceFetch)}`);
@@ -260,6 +261,18 @@ function sliceFetchOutlook(record) {
         return `trying again in ${Math.round(SLICE_FETCH_RETRY_MS / 1000)} seconds`;
     }
     return "consumption tracking unavailable for this print";
+}
+
+/**
+ * Where a fetch that delivered the sliced file read it from: `"cloud"` for the
+ * job's cloud link, `"printer"` for the printer's own storage over FTPS.
+ *
+ * @param {object|null} record - `printer.lastSliceFetch`
+ * @returns {"printer"|"cloud"|null} null when no file was read
+ */
+export function sliceSource(record) {
+    if (!record?.path) return null;
+    return record.cloud ? "cloud" : "printer";
 }
 
 /**
@@ -728,6 +741,7 @@ export async function handlePrintStateChange(printer, print) {
         printer.currentGcodeFile  = print.gcode_file || null;
         printer.currentSliceInfo  = null;
         printer.lastSliceFetch    = null;
+        printer.currentSliceSource = null;
         printer.sliceFetchInFlight = null;
         printer.currentMapping    = null;
         printer.refills           = [];
@@ -979,6 +993,7 @@ export async function handlePrintStateChange(printer, print) {
             durationMs:  printer.printStartedAt ? Date.now() - printer.printStartedAt : null,
             layerNum,
             totalLayers: printer.currentSliceInfo?.totalLayers ?? null,
+            sliceSource: printer.currentSliceInfo ? (printer.currentSliceSource ?? null) : null,
             printError:  errorNow ?? printer.lastPrintError ?? null,
             printErrorDetails: errorNow ? printErrorDetails(print) : (printer.lastPrintErrorDetails ?? null),
             rows:        [],

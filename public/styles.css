@@ -410,6 +410,10 @@ h1 {
   font-size: 0.85em;
 }
 .gc-fact-term { color: var(--text-muted); }
+/* Where the sliced file came from: the icon in the grey of the term, so the
+   value reads like every other fact and the icon only tells the two apart */
+.gc-fact-source { white-space: nowrap; }
+.gc-fact-icon { color: var(--text-muted); vertical-align: -2px; margin-right: 4px; }
 
 /* Says where the rows of the table come from, so a "not booked" line reads as
    a filament of the plate rather than as something the service mislaid. */

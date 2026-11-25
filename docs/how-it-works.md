@@ -18,13 +18,15 @@ Because the numbers come from the slicer and not from the RFID chip, this works 
 
 The link is dropped automatically as soon as a different filament is detected in that slot. It also resolves the rare case of two loaded spools that are identical in material and colour, which the RFID tag alone cannot tell apart.
 
-A spool taken out of its slot keeps the link, so one that comes back from the dryer is the same spool as before. The exception is a spool that runs out during a print while the AMS carries on from a backup slot of the same filament (auto refill): its link is released when the print ends, so the next spool put into that slot is not booked on the empty one. The print is split between the two spools at the layer the AMS switched. When Spoolman still lists weight on the spool that ran out, usually because its starting weight was too high, the print report says so and offers to set it to 0 g or to archive it.
+A spool taken out of its slot keeps the link, so one that comes back from the dryer is the same spool as before. The exception is a spool that runs out during a print while the AMS carries on from a backup slot of the same filament (auto refill): its link is released when the print ends, so the next spool put into that slot is not booked on the empty one. The print is split between the two spools at the layer the AMS switched, weighed from the G-code. An A1 or a P1 never says which slot a running print takes its filament from, only the slots Bambu Studio sent the job to, so there the switch is read from the slot the printer prints from: a move to a slot the job was not sent to is a refill. A refill onto a slot the same job prints other parts from looks exactly like a colour change and is still booked whole on the spool that ran out. When Spoolman still lists weight on the spool that ran out, usually because its starting weight was too high, the print report says so and offers to set it to 0 g or to archive it.
 
-Two things follow from booking per print rather than per report:
+Three things follow from booking per print rather than per report:
 
-- **A slot needs a link before its consumption can be booked**, either the tag of a Bambu Lab spool or a manual assignment. A filament the print uses from a slot that has neither is named in the log and skipped, so it is visible which spool is missing its link rather than silently going untracked.
+- **A slot needs a link before its consumption can be booked**, either the tag of a Bambu Lab spool or a manual assignment. A filament the print uses from a slot that has neither is named in the log and skipped, so it is visible which spool is missing its link rather than silently going untracked. When the printer or Bambu Studio names the slot, that slot is the only one considered: the grams never move to another spool of the same material and colour, and the dashboard says **not booked** under that slot after the print.
 - **Filaments swapped onto the external holder by hand are booked per filament.** A print sliced with "Use Multicolor with External" sends every filament to the holder, and the printer reports neither the swaps nor which spool was loaded. Each of those filaments is booked on the spool named for it in the Web UI, during the print or after it, and never on the spool assigned to the holder, see [the dashboard](web-ui.md).
 - **Nothing is written to Spoolman while a print runs.** The whole amount is booked when the job reaches its final state, so a spool in Spoolman stands still during the print and then jumps. The Web UI shows the progress in the meantime, per spool in the columns "On spool / total", "Needed" and "After print".
+
+When a file was changed and sent again under the same name, the printer can keep two copies, one in its cache and one on the storage root. The service asks the printer when each was written and reads the newest.
 
 The download needs LAN access to the printer on port 990 (FTPS) with the printer's access code, the same code MQTT already uses. Without it the print is logged as running but nothing is booked.
 
@@ -52,8 +54,9 @@ From then on the slot is linked and the consumption of every print is booked ont
 | `A1` – `A4` | first AMS, slot 1 – 4 | `B1` – `B4` | second AMS, slot 1 – 4 |
 | `HT-A` | first AMS HT | `HT-B` | second AMS HT |
 | `External` | external spool holder | `External-2` | second holder of a dual nozzle printer |
+| `E1` – `E9` | AMS 3H of an H3C, slot 1 – 9 | `External-3` – `External-9` | holders of tools 3 to 9 of an H3C |
 
-Continues up to `D4` for the normal AMS (max. 4 per printer) and up to `HT-H` for all connected AMS HT. The external spool holder is reported outside the AMS block and has no slot number of its own, so it is one slot named `External`. A dual nozzle printer (H2C, H2D, X2D) has two holders: `External` feeds the first extruder and `External-2` the second.
+Continues up to `D4` for the normal AMS (max. 4 per printer) and up to `HT-H` for all connected AMS HT. The external spool holder is reported outside the AMS block and has no slot number of its own, so it is one slot named `External`. A dual nozzle printer (H2C, H2D, X2D) has two holders: `External` feeds the first extruder and `External-2` the second. The AMS 3H of an H3C reports as one unit of nine slots, `E1` to `E9`, with `E6` and `E8` as its drying slots; `A1` to `D4` stay free for AMS units on its first tool. The H3C has a holder per tool, `External` to `External-9`. The units are always listed in the same order, `A` to `E`, then the AMS HT units, then the holders, whatever order the printer reports them in.
 
 ## Archiving empty spools
 

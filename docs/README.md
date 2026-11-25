@@ -11,6 +11,7 @@ The documentation of **HaspelSync**. It belongs to the version it sits in: this 
 | [API](api.md) | Who may call it, the API page in the Web UI, the OpenAPI document, and every route in a table |
 | [Troubleshooting](troubleshooting.md) | Reading the logs, data directories the container cannot write to, the `debug-printers` CLI, diagnostics and what an export contains |
 | [Legacy mode](legacy-mode.md) | The RFID based tracking of 1.2.x and what it cannot do |
+| [Updating to 1.4.0](updating-1.4.md) | The data directories of the non-root image, the end of the old image name, and the native tags |
 | [Updating from 1.2.x](updating.md) | The four things an installation updated from 1.2.x can trip over, and what keeps working |
 | [Deprecated configuration](deprecated-configuration.md) | Environment variables, hand-written `printers.json`, and the four container level variables |
 | [FAQ](faq.md) | The questions that come up most |

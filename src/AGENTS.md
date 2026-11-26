@@ -424,7 +424,15 @@ build their Spoolman payload from.
   both out then left the printer disconnected for as long as Spoolman stayed
   unreachable, with the close handler still promising a retry. `servicePrinters()`
   is one pass of it, split out so a pass can be asserted on; the loop itself
-  never returns.
+  never returns. A printer holds at most one client: `setupMqtt()` ends any
+  held one first, ends a client that connects after monitoring went off, and
+  ends one that failed between connect and subscribe. mqtt.js's own reconnects
+  are off (`reconnectPeriod: 0`), with the `close` handler's `end(true)` as a
+  backstop, and `allowRetries=false` makes a close before CONNACK reject rather
+  than leave `setupMqtt()` waiting forever. A connected printer is not probed,
+  because on a P1S the probe competes for the same few broker slots. So a
+  connected printer that vanishes is noticed by keepalive, after 30-90 s at the
+  default, instead of the probe's roughly 25 s.
 - **Spoolman being down stops processing, never connecting.** The guard belongs
   in `handleMqttMessage()`, which refuses to process a report without Spoolman,
   and it is already there. Anywhere else it turns an unrelated outage into a

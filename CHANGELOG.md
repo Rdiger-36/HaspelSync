@@ -1,4 +1,8 @@
 -----------------------------------------------------------------------------------------------
+Unreleased
+   - Fixes:
+      - A printer is held on one MQTT connection. The service checked port 8883 of a connected printer on every pass, and a P1S with few free client slots failed that check while the live connection kept working. The printer was then reported as unreachable and got a second connection beside the first, then a third on the next miss, until the printer accepted no one else: Bambu Studio, OrcaSlicer and Home Assistant could not connect while the service ran, and stopping the container freed the port within seconds (issues #15 and #64). A connected printer is no longer checked, a new connection first closes the one the printer still holds, and a dropped connection is no longer revived in the background by the MQTT library
+-----------------------------------------------------------------------------------------------
 Version 1.4.1
    - New Features:
       - The print card says where the sliced file came from, as one more entry next to the times: "Sliced file from the printer" with a USB stick icon or "from the cloud" with a cloud icon, and "not found" in red once the last attempt came up empty. The print's report keeps it, so a booking that looks wrong can be traced back to its file afterwards. `/api/print` carries it as `sliceSource`, `printer` or `cloud`, and the report as the same field (issue #281)

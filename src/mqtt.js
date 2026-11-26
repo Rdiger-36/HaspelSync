@@ -2950,14 +2950,36 @@ export async function setupMqtt(printer) {
     printer.isReconnecting = true;
     printer.lastReconnectAttempt = now;
 
+    // One printer, one connection, whatever left the state out of step. The
+    // broker admits only a few clients, so an orphan can lock everyone else out.
+    if (printer.mqttClient) closeMqtt(printer, "replaced by a new connection", true);
+
+    let client = null;
+
     try {
         console.log(printer.name, printer.logFilePath, `Setting up MQTT connection for Printer: ${printer.id}...`);
 
-        const client = await mqtt.connectAsync(`tls://bblp:${printer.code}@${printer.ip}:8883`, {
+        // The trailing false is allowRetries: a close before CONNACK then rejects
+        // instead of leaving this promise, and isReconnecting, hanging.
+        client = await mqtt.connectAsync(`tls://bblp:${printer.code}@${printer.ip}:8883`, {
             rejectUnauthorized: false,
-        });
+            // mqtt.js's own reconnect is off: monitorPrinters() is the only retry driver.
+            reconnectPeriod: 0,
+        }, false);
+
+        // Monitoring was switched off, or the printer was removed, while the
+        // connect was pending. closeMqtt() found nothing to close then, so this
+        // client would otherwise stay connected forever.
+        if (!printer.monitoringEnabled) {
+            client.end(true);
+            printer.isReconnecting = false;
+            return;
+        }
 
         printer.mqttStatus = "Connected";
+        // A reason left by closing a client that had no close handler of ours
+        // would otherwise be logged against the next, unrelated drop.
+        printer.closingReason = null;
         printer.mqttRunning = true;
         printer.mqttClient = client;
         printer.reconnectAttempts = 0;
@@ -2992,13 +3014,20 @@ export async function setupMqtt(printer) {
         });
 
         client.on("close", () => {
+            // mqtt.js reconnects by itself after any close unless end() was
+            // called. Stop that so a dropped client cannot come back as a second
+            // connection; monitorPrinters() is the only thing that retries.
+            client.end(true);
+
             // A deliberate reconnect ends this client and builds a new one right
             // away, so this can arrive when the printer already has a newer
             // connection. Resetting the state then would tear down the live one
             // and leave the monitor loop to pick the printer up again.
             if (printer.mqttClient && printer.mqttClient !== client) return;
 
-            printer.mqttStatus = "Disconnected";
+            // A close asked for by switching monitoring off must not repaint
+            // the printer as merely disconnected.
+            printer.mqttStatus = printer.monitoringEnabled ? "Disconnected" : "Disabled";
             printer.mqttRunning = false;
             printer.mqttClient = null;
 
@@ -3030,6 +3059,11 @@ export async function setupMqtt(printer) {
 
         console.log(printer.name, printer.logFilePath, `Waiting for MQTT messages for Printer: ${printer.id}...`);
     } catch (error) {
+        // A drop between CONNACK and SUBACK lands here before our close and
+        // error handlers exist, so nothing else would end this client.
+        client?.end(true);
+        if (printer.mqttClient === client) printer.mqttClient = null;
+
         printer.mqttStatus = "Error";
         printer.mqttRunning = false;
         printer.reconnectAttempts++;
@@ -3075,7 +3109,7 @@ export async function testMqttConnection(printer, timeout = 8000, listenTimeout 
             rejectUnauthorized: false,
             connectTimeout: timeout,
             reconnectPeriod: 0,
-        });
+        }, false);
 
         const topic = `device/${printer.id}/report`;
         await client.subscribeAsync(topic);
@@ -3220,9 +3254,9 @@ function printerStillOffline(printer, now) {
  * Runs forever, reconnecting printers that are reachable but not connected.
  *
  * This is the single retry driver for MQTT. On every offline check interval each
- * enabled printer is probed with a plain TCP connect before setupMqtt is
- * attempted, so an unreachable printer costs one short timeout rather than a
- * hanging MQTT handshake.
+ * enabled printer that is not connected is probed with a plain TCP connect
+ * before setupMqtt is attempted, so an unreachable printer costs one short
+ * timeout rather than a hanging MQTT handshake.
  *
  * It keeps running while Spoolman is down. It used to idle instead, on the
  * grounds that there would be nothing to write AMS data to, and because this is
@@ -3268,6 +3302,7 @@ export async function servicePrinters(printers) {
         if (!printer.monitoringEnabled) {
             printer.mqttRunning = false;
             printer.mqttStatus = "Disabled";
+            if (printer.mqttClient) closeMqtt(printer, "monitoring is off", true);
             continue;
         }
 
@@ -3275,6 +3310,13 @@ export async function servicePrinters(printers) {
         // Not yet due: this printer failed its last check and is waiting out
         // its backoff. A connected one has no wait, so it is never skipped.
         if (printer.nextCheckAt && now < printer.nextCheckAt) continue;
+
+        // The probe is a connection to the same broker the live client is on. A
+        // P1S near its client limit fails the probe while that connection works
+        // fine, and the loop then marked the printer offline and built a second
+        // client beside it, which is what leaked connections. A live connection
+        // already reports itself gone, through its keepalive and close handler.
+        if (printer.mqttRunning && printer.mqttClient?.connected) continue;
 
         try {
             const isAlive = await checkPrinterAvailability(printer.ip, 8883);

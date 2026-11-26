@@ -99,3 +99,19 @@ test("a failed request is named by its code rather than swallowed", () => {
     assert.equal(describeRequestError(undefined), "no reason given");
     assert.equal(describeRequestError({}), "no reason given");
 });
+
+test("a connected printer is not probed, so a slow broker cannot double its connection", async () => {
+    // The probe is itself a connection to the broker. A P1S near its client
+    // limit fails it while the live connection keeps working, and the loop then
+    // used to mark the printer offline and build a second client beside it.
+    let ended = false;
+    const fakeClient = { connected: true, end() { ended = true; } };
+    const printer = { ...offlinePrinter(), mqttRunning: true, mqttStatus: "Connected", mqttClient: fakeClient };
+
+    await servicePrinters([printer]);
+
+    assert.equal(printer.mqttRunning, true);
+    assert.equal(printer.nextCheckAt, 0);
+    assert.equal(printer.mqttClient, fakeClient);
+    assert.equal(ended, false);
+});

@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Documentation and troubleshooting
     url: https://github.com/Rdiger-36/HaspelSync/blob/main/docs/README.md

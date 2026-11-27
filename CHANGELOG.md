@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------------------------
-Unreleased
+Version 1.4.2
    - Fixes:
-      - A printer is held on one MQTT connection. The service checked port 8883 of a connected printer on every pass, and a P1S with few free client slots failed that check while the live connection kept working. The printer was then reported as unreachable and got a second connection beside the first, then a third on the next miss, until the printer accepted no one else: Bambu Studio, OrcaSlicer and Home Assistant could not connect while the service ran, and stopping the container freed the port within seconds (issues #15 and #64). A connected printer is no longer checked, a new connection first closes the one the printer still holds, and a dropped connection is no longer revived in the background by the MQTT library
+      - A printer is held on one MQTT connection. The service checked port 8883 of a connected printer on every pass, and a P1S with few free client slots failed that check while the live connection kept working. The printer was then reported as unreachable and got a second connection beside the first, then a third on the next miss, until the printer accepted no one else: Bambu Studio, OrcaSlicer and Home Assistant could not connect while the service ran, and stopping the container freed the port within seconds (issues #15 and #64). A connected printer is no longer checked, a new connection first closes the one the printer still holds, and a dropped connection is no longer revived in the background by the MQTT library. Thanks to @zsiddique (PR #290)
 -----------------------------------------------------------------------------------------------
 Version 1.4.1
    - New Features:
